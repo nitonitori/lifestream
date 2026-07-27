@@ -92,7 +92,7 @@ export class ControlPlane extends EventEmitter {
     const entry: ManagedEntry = { sessionId: id, tmuxSession: name, cwd: opts.cwd, origin: 'managed', createdAt: this.d.clock.now() };
     await this.d.registry.put(entry);
     if (opts.initialPrompt) await this.d.tmux.sendText(name, opts.initialPrompt);
-    return { sessionId: id, name: opts.name, cwd: opts.cwd, status: 'unknown', origin: 'managed', live: true, controllable: true, tmuxSession: name };
+    return { sessionId: id, name: opts.name, cwd: opts.cwd, status: 'unknown', origin: 'managed', live: true, controllable: true, tmuxSession: name, createdAt: entry.createdAt };
   }
 
   private async resolveCwd(id: string): Promise<string> {
@@ -116,8 +116,27 @@ export class ControlPlane extends EventEmitter {
     const cwd = await this.resolveCwd(id);
     const name = tmuxNameFor(id);
     await this.d.tmux.newSession(name, cwd, [this.d.claudeBin, '--resume', id]);
-    await this.d.registry.put({ sessionId: id, tmuxSession: name, cwd, origin: 'adopted', createdAt: this.d.clock.now() });
-    return { sessionId: id, cwd, status: 'unknown', origin: 'adopted', live: true, controllable: true, tmuxSession: name };
+    const createdAt = this.d.clock.now();
+    await this.d.registry.put({ sessionId: id, tmuxSession: name, cwd, origin: 'adopted', createdAt });
+    return { sessionId: id, cwd, status: 'unknown', origin: 'adopted', live: true, controllable: true, tmuxSession: name, createdAt };
+  }
+
+  // 结束/归档会话：受控会话 kill tmux（其 claude 进程随之退出）并移出注册表；
+  // 外部（非受控）存活会话不属于本服务，拒绝删除，提示去其所属终端退出。
+  async archiveSession(id: string): Promise<void> {
+    const entry = await this.d.registry.get(id);
+    if (entry) {
+      if (await this.d.tmux.hasSession(entry.tmuxSession)) await this.d.tmux.killSession(entry.tmuxSession);
+      await this.d.registry.remove(id);
+      this.lastSeen.delete(id);
+      this.emitEvent({ type: 'session.removed', sessionId: id });
+      return;
+    }
+    const live = await this.d.home.readLiveSessions();
+    if (live.some(l => l.sessionId === id)) {
+      throw new NotControllableError('外部会话无法删除，请在其所属终端退出: ' + id);
+    }
+    throw new NotFoundError('session not found: ' + id);
   }
 
   async pollOnce(): Promise<void> {

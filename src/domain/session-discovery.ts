@@ -14,7 +14,7 @@ export function toLiveSession(raw: any, isPidAlive: (pid: number) => boolean): L
   };
 }
 
-interface ManagedShape { sessionId: string; tmuxSession: string; cwd: string; origin: 'managed' | 'adopted'; }
+interface ManagedShape { sessionId: string; tmuxSession: string; cwd: string; origin: 'managed' | 'adopted'; createdAt?: number; }
 
 export function buildSummaries(args: {
   live: LiveSession[];
@@ -35,8 +35,9 @@ export function buildSummaries(args: {
     out.push({
       sessionId: id, name: l?.name, cwd: l?.cwd ?? m?.cwd ?? '',
       status: l?.status ?? 'unknown', origin, live: !!l, controllable,
-      tmuxSession: m?.tmuxSession, pid: l?.pid, lastActivity: activity.get(id),
+      tmuxSession: m?.tmuxSession, pid: l?.pid, lastActivity: activity.get(id), createdAt: m?.createdAt,
     });
   }
-  return out.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
+  // 无转录活动的受控新会话按 createdAt 排在前，避免"看起来没启动"
+  return out.sort((a, b) => (b.lastActivity ?? b.createdAt ?? 0) - (a.lastActivity ?? a.createdAt ?? 0));
 }

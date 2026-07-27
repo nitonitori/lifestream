@@ -43,4 +43,16 @@ describe('buildSummaries', () => {
     })[0];
     expect(s).toMatchObject({ sessionId: 's3', live: false, controllable: false });
   });
+  it('new managed session (createdAt, no activity) sorts above older active ones', () => {
+    const out = buildSummaries({
+      live: [
+        { pid: 1, sessionId: 'new', cwd: '/w', status: 'idle' },
+        { pid: 2, sessionId: 'old', cwd: '/w', status: 'idle' },
+      ],
+      managed: [{ sessionId: 'new', tmuxSession: 'lifestream-new', cwd: '/w', origin: 'managed', createdAt: 1000 }],
+      tmuxNames: new Set(['lifestream-new']),
+      activity: new Map([['old', 500]]),   // 老会话最近活动 500 < 新会话 createdAt 1000
+    });
+    expect(out.map(s => s.sessionId)).toEqual(['new', 'old']);
+  });
 });

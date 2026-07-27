@@ -81,6 +81,36 @@ describe('adoptSession (B4)', () => {
   });
 });
 
+describe('archiveSession (B6)', () => {
+  it('kills tmux and removes managed session, emits removed', async () => {
+    const { plane, tmux, registry } = make();
+    const s = await plane.createSession({ cwd: '/w' });
+    const name = 'lifestream-' + s.sessionId.slice(0, 8);
+    const events: any[] = [];
+    plane.on('event', e => events.push(e));
+    await plane.archiveSession(s.sessionId);
+    expect(tmux.sessions.has(name)).toBe(false);
+    expect(await registry.get(s.sessionId)).toBeNull();
+    expect(events).toContainEqual({ type: 'session.removed', sessionId: s.sessionId });
+  });
+  it('removes managed entry even when tmux already gone', async () => {
+    const { plane, tmux, registry } = make();
+    const s = await plane.createSession({ cwd: '/w' });
+    tmux.sessions.delete('lifestream-' + s.sessionId.slice(0, 8));
+    await plane.archiveSession(s.sessionId);
+    expect(await registry.get(s.sessionId)).toBeNull();
+  });
+  it('refuses external (non-managed) live session', async () => {
+    const { plane, home } = make();
+    home.live = [{ pid: 1, sessionId: 'ext', cwd: '/w', status: 'busy' }];
+    await expect(plane.archiveSession('ext')).rejects.toBeInstanceOf(NotControllableError);
+  });
+  it('throws NotFoundError for unknown id', async () => {
+    const { plane } = make();
+    await expect(plane.archiveSession('nope')).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
 describe('getMessages', () => {
   it('parses located transcript', async () => {
     const { plane, home } = make();

@@ -25,6 +25,7 @@ export interface SessionSummary {
   tmuxSession?: string;
   pid?: number;
   lastActivity?: number;
+  createdAt?: number;
 }
 
 export interface SessionDetail extends SessionSummary {

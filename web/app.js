@@ -66,7 +66,9 @@ function fleetCounts() {
   let busy = 0, idle = 0;
   for (const s of state.sessions.values()) {
     if (!s.live) continue;
-    if (s.status === 'busy') busy++; else idle++;
+    if (s.status === 'busy') busy++;
+    else if (s.status === 'idle') idle++;
+    // status 未知（如旧版本 claude 不写 status）：既非忙也非闲，不计入，仅在列表标为“在线”
   }
   return { busy, idle };
 }
@@ -93,7 +95,7 @@ function renderRail() {
     return;
   }
   for (const s of sessions) {
-    const vital = !s.live ? 'external' : (s.status === 'busy' ? 'busy' : 'idle');
+    const vital = !s.live ? 'external' : (s.status === 'busy' ? 'busy' : s.status === 'idle' ? 'idle' : 'live');
     wrap.appendChild(streamCard({
       kind: 'session', id: s.sessionId,
       name: s.name || s.sessionId.slice(0, 8),
@@ -162,6 +164,12 @@ function renderHeader() {
       b.onclick = () => adopt(sel.id);
       actions.appendChild(b);
     }
+    if (s && s.controllable) {
+      const del = document.createElement('button');
+      del.className = 'btn btn--ghost'; del.textContent = '结束会话';
+      del.onclick = () => archiveSession(sel.id);
+      actions.appendChild(del);
+    }
   }
   const refresh = document.createElement('button');
   refresh.className = 'btn btn--ghost'; refresh.textContent = '刷新';
@@ -171,7 +179,7 @@ function renderHeader() {
 
 function statusLabel(s) {
   if (!s.live) return '离线';
-  return s.status === 'busy' ? '运行中' : s.status === 'idle' ? '空闲' : '未知';
+  return s.status === 'busy' ? '运行中' : s.status === 'idle' ? '空闲' : '在线';
 }
 
 async function loadStreamMessages(reset) {
@@ -231,9 +239,14 @@ function showEmptyHint() {
   const el = document.createElement('div');
   el.className = 'rail__empty';
   el.style.marginTop = '40px';
-  el.textContent = sel && sel.kind === 'messenger'
-    ? '还没有对话。向信使 Agent 发消息即可开始 —— 它与钉钉共享同一上下文。'
-    : '还没有消息。';
+  if (sel && sel.kind === 'messenger') {
+    el.textContent = '还没有对话。向信使 Agent 发消息即可开始 —— 它与钉钉共享同一上下文。';
+  } else {
+    const s = sel && state.sessions.get(sel.id);
+    el.textContent = (s && s.live && s.controllable)
+      ? '会话已启动，发送首条消息开始对话。'
+      : '还没有消息。';
+  }
   $('messages').appendChild(el);
 }
 
@@ -390,6 +403,23 @@ async function adopt(id) {
   const r = await api(`/api/sessions/${id}/adopt`, { method: 'POST', body: '{}' });
   if (r.ok) { toast('已接管'); refreshSessions(); renderHeader(); }
   else { const j = await r.json().catch(() => ({})); toast(j.error ? j.error.message : '接管失败'); }
+}
+
+async function archiveSession(id) {
+  const s = state.sessions.get(id);
+  const label = (s && s.name) || id.slice(0, 8);
+  if (!confirm(`结束会话「${label}」？这会关闭其 tmux 窗口并结束对应的 Claude 进程。`)) return;
+  const r = await api(`/api/sessions/${id}`, { method: 'DELETE' });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); toast(j.error ? j.error.message : '结束失败'); return; }
+  toast('已结束会话');
+  state.sessions.delete(id);
+  if (state.current && state.current.kind === 'session' && state.current.id === id) {
+    state.current = null;
+    $('consoleView').style.display = 'none';
+    $('placeholder').style.display = 'grid';
+    $('app').classList.remove('show-console');
+  }
+  refreshSessions();
 }
 
 async function newSession() {

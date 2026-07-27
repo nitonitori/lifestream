@@ -76,6 +76,8 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
   app.post('/api/sessions', (req, reply) => wrap(reply, () => plane.createSession(req.body as any), 201));
   app.post('/api/sessions/:id/adopt', (req, reply) =>
     wrap(reply, () => plane.adoptSession((req.params as any).id, { force: (req.body as any)?.force }), 200));
+  app.delete('/api/sessions/:id', (req, reply) =>
+    wrap(reply, async () => { await plane.archiveSession((req.params as any).id); return { ok: true }; }));
 
   // ---- 设备管理 ----
   app.get('/api/devices', (req, reply) => wrap(reply, async () => {

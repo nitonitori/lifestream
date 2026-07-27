@@ -112,6 +112,7 @@ button, input, textarea { font-family: inherit; color: inherit; }
   border: 1.5px solid var(--busy); animation: ring 1.8s ease-out infinite;
 }
 .vital-dot.is-idle { background: var(--calm); }
+.vital-dot.is-live { background: var(--user); }
 .vital-dot.is-external { background: transparent; border: 1.5px solid var(--faint); }
 @keyframes ring { 0% { transform: scale(0.7); opacity: 0.9; } 100% { transform: scale(1.9); opacity: 0; } }
 .stream__body { min-width: 0; }
