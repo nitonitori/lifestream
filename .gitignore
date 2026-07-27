@@ -1,0 +1,10 @@
+node_modules/
+dist/
+public/
+*.log
+.DS_Store
+lifestream.config.json
+.lifestream/
+coverage/
+.playwright-mcp/
+*.png

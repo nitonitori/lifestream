@@ -1,0 +1,22 @@
+{
+  "web": { "host": "127.0.0.1", "port": 8787, "token": "" },
+  "tmux": { "bin": "tmux", "socket": "lifestream" },
+  "claude": { "bin": "claude", "defaultModel": null, "agentPermissionMode": "bypassPermissions" },
+  "paths": { "claudeHome": "~/.claude", "stateDir": "~/.lifestream" },
+  "im": {
+    "enabled": false,
+    "provider": "dingtalk",
+    "dwsPath": "/path/to/dws",
+    "pollIntervalMs": 3000,
+    "channel": {
+      "conversationId": "<自聊/群聊的 openConversationId：dws chat list-all-conversations 里找>",
+      "send": { "type": "user", "target": "<your-dingtalk-user-id>" }
+    },
+    "replyMarker": "🤖 ",
+    "commandPrefix": "/ai",
+    "allowedSenderIds": ["<your-open-dingtalk-id>"],
+    "confirmWords": ["确认", "确定", "yes", "y", "ok"],
+    "cancelWords": ["取消", "no", "n"],
+    "confirmTtlMs": 300000
+  }
+}

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Lifestream — 会话控制台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Login -->
+  <div class="login" id="login">
+    <div class="login__card">
+      <div class="login__mark">Life<span class="dot">stream</span></div>
+      <div class="login__sub">本机 Claude 会话控制台</div>
+      <div class="login__row">
+        <input id="token" type="password" placeholder="访问令牌" autocomplete="current-password">
+        <button class="btn" id="loginBtn">进入</button>
+      </div>
+      <div class="login__err" id="loginErr"></div>
+    </div>
+  </div>
+
+  <!-- App -->
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="brand">Life<span class="dot">stream</span></div>
+      <div class="fleet">
+        <svg class="pulseline" viewBox="0 0 92 22" aria-hidden="true">
+          <path d="M0 11 H26 l3 -7 l4 14 l3 -7 H50 l3 -4 l3 4 H92" />
+          <path class="lead" d="M0 11 H26 l3 -7 l4 14 l3 -7 H50 l3 -4 l3 4 H92" />
+        </svg>
+        <div class="fleet__stat"><span class="fleet__num is-busy" id="cntBusy">0</span><span class="fleet__label">运行中</span></div>
+        <div class="fleet__stat fleet__stat--idle"><span class="fleet__num is-idle" id="cntIdle">0</span><span class="fleet__label">空闲</span></div>
+      </div>
+      <div class="conn" id="conn"><span class="conn__dot"></span><span id="connText">连接中…</span></div>
+      <button class="iconbtn" id="devicesBtn" style="margin-left:12px;">设备</button>
+    </header>
+
+    <div class="body">
+      <aside class="rail" id="rail">
+        <div class="rail__head"><span class="eyebrow">Streams</span>
+          <button class="iconbtn" id="newBtn">+ 新建会话</button>
+        </div>
+        <div id="streams"></div>
+      </aside>
+
+      <main class="console" id="console">
+        <div class="placeholder" id="placeholder">
+          <div>
+            <div class="placeholder__mark">◦</div>
+            <p>从左侧选择一个会话，或与 <b>信使 Agent</b> 对话。</p>
+          </div>
+        </div>
+
+        <div id="consoleView" style="display:none; flex-direction:column; min-height:0; flex:1;">
+          <div class="console__head">
+            <button class="console__back" id="backBtn" aria-label="返回">‹</button>
+            <div class="console__title">
+              <div class="console__name" id="cvName">—</div>
+              <div class="console__sub mono" id="cvSub"></div>
+            </div>
+            <div class="console__actions" id="cvActions"></div>
+          </div>
+
+          <div class="confirm" id="confirmBox" style="display:none;">
+            <div class="confirm__title">待确认操作</div>
+            <ul class="confirm__list" id="confirmList"></ul>
+            <div class="confirm__row">
+              <button class="btn btn--warn" id="confirmYes">确认执行</button>
+              <button class="btn btn--ghost" id="confirmNo">取消</button>
+            </div>
+          </div>
+
+          <div class="stream-view" id="streamView">
+            <button class="iconbtn loadmore" id="loadMore" style="display:none;">载入更早</button>
+            <div id="messages"></div>
+          </div>
+
+          <button class="jump" id="jump">↓ 最新 <span id="jumpCount"></span></button>
+
+          <div class="composer">
+            <textarea id="composerInput" rows="1" placeholder="输入消息…"></textarea>
+            <button class="btn" id="sendBtn">发送</button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- Devices modal -->
+  <div class="modal" id="devicesModal">
+    <div class="modal__card">
+      <div class="modal__head">
+        <div class="modal__title">已登录设备</div>
+        <button class="modal__close" id="devicesClose" aria-label="关闭">×</button>
+      </div>
+      <div class="modal__hint">在新设备上用主令牌登录一次即可常驻。主令牌在电脑上用 <code>lifestream token</code> 获取。撤销后该设备需重新登录。</div>
+      <div id="devicesList"></div>
+      <div style="margin-top:18px; text-align:right;">
+        <button class="btn btn--ghost" id="logoutBtn">退出本设备</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
