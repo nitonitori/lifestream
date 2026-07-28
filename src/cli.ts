@@ -17,6 +17,7 @@ export function buildPlane(cfg: Config): ControlPlane {
     claudeBin: cfg.claude.bin,
     tmuxSocket: cfg.tmux.socket,
     newSessionId: () => randomUUID(),
+    sessionPermissionMode: cfg.claude.sessionPermissionMode,
   });
 }
 

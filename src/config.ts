@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 export interface Config {
   web: { host: string; port: number; token: string };
   tmux: { bin: string; socket: string };
-  claude: { bin: string; defaultModel?: string | null; agentPermissionMode: string };
+  claude: { bin: string; defaultModel?: string | null; agentPermissionMode: string; sessionPermissionMode: string };
   paths: { claudeHome: string; stateDir: string };
   im: {
     enabled: boolean; provider: string; dwsPath?: string; pollIntervalMs: number;
@@ -26,7 +26,7 @@ export function loadConfig(file = 'lifestream.config.json'): Config {
   return {
     web: { host: '127.0.0.1', port: 8787, token: '', ...(raw.web ?? {}) },
     tmux: { bin: 'tmux', socket: 'lifestream', ...(raw.tmux ?? {}) },
-    claude: { bin: 'claude', defaultModel: null, agentPermissionMode: 'bypassPermissions', ...(raw.claude ?? {}) },
+    claude: { bin: 'claude', defaultModel: null, agentPermissionMode: 'bypassPermissions', sessionPermissionMode: 'bypassPermissions', ...(raw.claude ?? {}) },
     paths: {
       claudeHome: expand(raw.paths?.claudeHome ?? '~/.claude'),
       stateDir: expand(raw.paths?.stateDir ?? '~/.lifestream'),

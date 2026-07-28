@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentRunner } from '../ports/index.js';
@@ -60,14 +60,33 @@ export interface AgentRunnerOpts {
 
 // 信使 agent 内核 = Claude Code headless（claude -p + --resume）。
 // 每个 conversationKey 一个持久 claude 会话；Web 与 IM 用同一 key => 共享上下文。
+// conversationKey -> claude sessionId 落盘到 stateDir，重启/reload 后仍能续上历史与上下文。
 export class ClaudeAgentRunner implements AgentRunner {
   private sessions = new Map<string, string>();
-  constructor(private opts: AgentRunnerOpts) {}
+  private sessionsFile: string;
+  constructor(private opts: AgentRunnerOpts) {
+    this.sessionsFile = join(opts.stateDir, 'agent-sessions.json');
+    this.loadSessions();
+  }
+
+  private loadSessions(): void {
+    try {
+      const raw = JSON.parse(readFileSync(this.sessionsFile, 'utf8'));
+      for (const [k, v] of Object.entries(raw)) if (typeof v === 'string') this.sessions.set(k, v);
+    } catch { /* 尚无文件 */ }
+  }
+
+  private saveSessions(): void {
+    try {
+      mkdirSync(this.opts.stateDir, { recursive: true });
+      writeFileSync(this.sessionsFile, JSON.stringify(Object.fromEntries(this.sessions), null, 2));
+    } catch { /* 落盘失败不阻断对话 */ }
+  }
 
   handle(key: string, userText: string): Promise<string> {
     const existing = this.sessions.get(key);
     const sid = existing ?? randomUUID();
-    if (!existing) this.sessions.set(key, sid);
+    if (!existing) { this.sessions.set(key, sid); this.saveSessions(); }
     const args = buildAgentArgs({
       text: userText, sessionId: sid, resume: !!existing,
       mcpConfigPath: this.opts.mcpConfigPath, systemPrompt: MESSENGER_SYSTEM_PROMPT,
@@ -90,7 +109,8 @@ export class ClaudeAgentRunner implements AgentRunner {
     writeFileSync(p, JSON.stringify({
       mcpServers: {
         lifestream: {
-          command: 'node',
+          // 用 serve 进程自身的 node 绝对路径，避免 claude 拉起 MCP 时 PATH/nvm 解析不到 node。
+          command: process.execPath,
           args: [cliPath, 'mcp', '--mode', 'im'],
           env: { LIFESTREAM_CONV: conversationId },
         },

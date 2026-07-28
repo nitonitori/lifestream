@@ -9,12 +9,17 @@ function make() {
   const home = new FakeClaudeHome();
   const registry = new InMemoryManagedRegistry();
   const clock = new FakeClock(5000);
+  const killed: number[] = [];
+  // 模拟“杀掉原进程 → 该 live 会话随之消失”，让 waitForSessionGone 立即返回
+  const killProcess = (pid: number) => { killed.push(pid); home.live = home.live.filter(l => l.pid !== pid); };
   let n = 0;
   const plane = new ControlPlane({
     tmux, home, registry, clock, claudeBin: 'claude', tmuxSocket: 'lifestream',
     newSessionId: () => `00000000-0000-0000-0000-00000000000${++n}`,
+    sessionPermissionMode: 'bypassPermissions',
+    killProcess,
   });
-  return { plane, tmux, home, registry, clock };
+  return { plane, tmux, home, registry, clock, killed };
 }
 
 describe('createSession (B2)', () => {
@@ -26,15 +31,21 @@ describe('createSession (B2)', () => {
     const entry = await registry.get(s.sessionId);
     expect(entry?.tmuxSession).toBe('lifestream-' + s.sessionId.slice(0, 8));
     const created = tmux.sessions.get(entry!.tmuxSession)!;
-    expect(created.command).toEqual(['claude', '--session-id', s.sessionId]);
+    expect(created.command).toEqual(['claude', '--session-id', s.sessionId, '--permission-mode', 'bypassPermissions']);
     expect(created.cwd).toBe('/w');
   });
   it('passes model and initialPrompt (sends after start)', async () => {
     const { plane, tmux } = make();
     const s = await plane.createSession({ cwd: '/w', model: 'sonnet', initialPrompt: 'go' });
     const name = 'lifestream-' + s.sessionId.slice(0, 8);
-    expect(tmux.sessions.get(name)!.command).toEqual(['claude', '--session-id', s.sessionId, '--model', 'sonnet']);
+    expect(tmux.sessions.get(name)!.command).toEqual(['claude', '--session-id', s.sessionId, '--model', 'sonnet', '--permission-mode', 'bypassPermissions']);
     expect(tmux.sent).toEqual([{ name, text: 'go' }]);
+  });
+  it('explicit opts.permissionMode overrides the configured default', async () => {
+    const { plane, tmux } = make();
+    const s = await plane.createSession({ cwd: '/w', permissionMode: 'plan' });
+    const name = 'lifestream-' + s.sessionId.slice(0, 8);
+    expect(tmux.sessions.get(name)!.command).toEqual(['claude', '--session-id', s.sessionId, '--permission-mode', 'plan']);
   });
 });
 
@@ -64,7 +75,7 @@ describe('adoptSession (B4)', () => {
     const s = await plane.adoptSession('ext');
     expect(s.origin).toBe('adopted');
     const name = 'lifestream-ext';
-    expect(tmux.sessions.get(name)!.command).toEqual(['claude', '--resume', 'ext']);
+    expect(tmux.sessions.get(name)!.command).toEqual(['claude', '--resume', 'ext', '--permission-mode', 'bypassPermissions']);
     expect(tmux.sessions.get(name)!.cwd).toBe('/wext');
     expect((await registry.get('ext'))?.origin).toBe('adopted');
   });
@@ -73,11 +84,15 @@ describe('adoptSession (B4)', () => {
     home.live = [{ pid: 9, sessionId: 'ext', cwd: '/w', status: 'busy' }];
     await expect(plane.adoptSession('ext')).rejects.toBeInstanceOf(ConflictError);
   });
-  it('force adopts live session', async () => {
-    const { plane, home } = make();
-    home.live = [{ pid: 9, sessionId: 'ext', cwd: '/w', status: 'busy' }];
+  it('force adopt kills the original process, then resumes in a managed window', async () => {
+    const { plane, tmux, home, killed } = make();
+    home.live = [{ pid: 9, sessionId: 'ext', cwd: '/wlive', status: 'busy' }];
     const s = await plane.adoptSession('ext', { force: true });
     expect(s.origin).toBe('adopted');
+    expect(killed).toContain(9);
+    const created = tmux.sessions.get('lifestream-ext')!;
+    expect(created.command).toEqual(['claude', '--resume', 'ext', '--permission-mode', 'bypassPermissions']);
+    expect(created.cwd).toBe('/wlive');   // cwd 取自被杀前的 live 记录
   });
 });
 

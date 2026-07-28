@@ -400,7 +400,14 @@ async function confirmDecision(word) {
 }
 
 async function adopt(id) {
-  const r = await api(`/api/sessions/${id}/adopt`, { method: 'POST', body: '{}' });
+  const s = state.sessions.get(id);
+  const label = (s && s.name) || id.slice(0, 8);
+  let force = false;
+  if (s && s.live) {
+    if (!confirm(`会话「${label}」仍在运行。接管会先结束其原进程，再在受控窗口中恢复（保留完整上下文）。是否继续？`)) return;
+    force = true;
+  }
+  const r = await api(`/api/sessions/${id}/adopt`, { method: 'POST', body: JSON.stringify({ force }) });
   if (r.ok) { toast('已接管'); refreshSessions(); renderHeader(); }
   else { const j = await r.json().catch(() => ({})); toast(j.error ? j.error.message : '接管失败'); }
 }

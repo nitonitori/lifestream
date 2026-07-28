@@ -16,6 +16,11 @@ interface Deps {
   tmuxSocket: string;
   newSessionId: () => string;
   pollIntervalMs?: number;
+  // 受控会话（新建/接管）默认权限模式。远程无键盘，默认给 bypassPermissions，
+  // 否则 claude 会卡在“This command requires approval”而 Web 无法应答。
+  sessionPermissionMode?: string;
+  // 结束原进程用（接管存活会话时）。默认 SIGTERM；测试可注入。
+  killProcess?: (pid: number) => void;
 }
 
 export class ControlPlane extends EventEmitter {
@@ -84,9 +89,10 @@ export class ControlPlane extends EventEmitter {
   async createSession(opts: { cwd: string; name?: string; model?: string; permissionMode?: string; initialPrompt?: string }): Promise<SessionSummary> {
     const id = this.d.newSessionId();
     const name = tmuxNameFor(id);
+    const mode = opts.permissionMode ?? this.d.sessionPermissionMode;
     const cmd = [this.d.claudeBin, '--session-id', id];
     if (opts.model) cmd.push('--model', opts.model);
-    if (opts.permissionMode) cmd.push('--permission-mode', opts.permissionMode);
+    if (mode) cmd.push('--permission-mode', mode);
     if (opts.name) cmd.push('--name', opts.name);
     await this.d.tmux.newSession(name, opts.cwd, cmd);
     const entry: ManagedEntry = { sessionId: id, tmuxSession: name, cwd: opts.cwd, origin: 'managed', createdAt: this.d.clock.now() };
@@ -110,15 +116,39 @@ export class ControlPlane extends EventEmitter {
 
   async adoptSession(id: string, opts: { force?: boolean } = {}): Promise<SessionSummary> {
     const live = await this.d.home.readLiveSessions();
-    if (live.some(l => l.sessionId === id) && !opts.force) {
+    const liveMatches = live.filter(l => l.sessionId === id);
+    if (liveMatches.length && !opts.force) {
       throw new ConflictError('session still running; exit its window first or use force: ' + id);
     }
-    const cwd = await this.resolveCwd(id);
+    // force 接管存活会话：先结束原进程（其持有该 session id），等它释放，再 --resume。
+    let cwdHint: string | undefined;
+    if (liveMatches.length) {
+      cwdHint = liveMatches.find(l => l.cwd)?.cwd;
+      for (const l of liveMatches) if (l.pid) this.killPid(l.pid);
+      await this.waitForSessionGone(id);
+    }
+    const cwd = cwdHint ?? await this.resolveCwd(id);
     const name = tmuxNameFor(id);
-    await this.d.tmux.newSession(name, cwd, [this.d.claudeBin, '--resume', id]);
+    const cmd = [this.d.claudeBin, '--resume', id];
+    if (this.d.sessionPermissionMode) cmd.push('--permission-mode', this.d.sessionPermissionMode);
+    await this.d.tmux.newSession(name, cwd, cmd);
     const createdAt = this.d.clock.now();
     await this.d.registry.put({ sessionId: id, tmuxSession: name, cwd, origin: 'adopted', createdAt });
     return { sessionId: id, cwd, status: 'unknown', origin: 'adopted', live: true, controllable: true, tmuxSession: name, createdAt };
+  }
+
+  private killPid(pid: number): void {
+    try { (this.d.killProcess ?? ((p: number) => process.kill(p, 'SIGTERM')))(pid); }
+    catch { /* 已退出 / 无权限 */ }
+  }
+
+  // 轮询直到该 session id 从 live 注册表消失（原进程已释放），最多约 3s 后仍继续。
+  private async waitForSessionGone(id: string, tries = 15, delayMs = 200): Promise<void> {
+    for (let i = 0; i < tries; i++) {
+      const live = await this.d.home.readLiveSessions();
+      if (!live.some(l => l.sessionId === id)) return;
+      await new Promise(r => setTimeout(r, delayMs));
+    }
   }
 
   // 结束/归档会话：受控会话 kill tmux（其 claude 进程随之退出）并移出注册表；
