@@ -67,8 +67,49 @@ describe('sendMessage (B3)', () => {
   });
 });
 
-describe('adoptSession (B4)', () => {
-  it('resumes external (not live) into tmux', async () => {
+describe('detectPrompt / sendKeys / capturePane', () => {
+  const PERMISSION_PANE = [
+    '│ Bash command                                          │',
+    '│ Do you want to proceed?                               │',
+    '│ ❯ 1. Yes                                              │',
+    '│   2. No, and tell Claude what to do (esc)             │',
+  ].join('\n');
+
+  it('detectPrompt parses a permission box from the pane', async () => {
+    const { plane, tmux } = make();
+    const s = await plane.createSession({ cwd: '/w' });
+    tmux.paneText = PERMISSION_PANE;
+    const p = await plane.detectPrompt(s.sessionId);
+    expect(p).not.toBeNull();
+    expect(p!.kind).toBe('permission');
+    expect(p!.options).toEqual([{ key: '1', label: 'Yes' }, { key: '2', label: 'No, and tell Claude what to do (esc)' }]);
+  });
+
+  it('detectPrompt returns null when pane has no selector', async () => {
+    const { plane, tmux } = make();
+    const s = await plane.createSession({ cwd: '/w' });
+    tmux.paneText = 'just some normal output\nnothing to pick here';
+    expect(await plane.detectPrompt(s.sessionId)).toBeNull();
+  });
+
+  it('sendKeys records raw keys to the managed tmux', async () => {
+    const { plane, tmux } = make();
+    const s = await plane.createSession({ cwd: '/w' });
+    await plane.sendKeys(s.sessionId, ['2']);
+    expect(tmux.keys.at(-1)).toEqual({ name: 'lifestream-' + s.sessionId.slice(0, 8), keys: ['2'] });
+  });
+
+  it('capturePane/sendKeys throw NotControllable for external live and NotFound for unknown', async () => {
+    const { plane, home } = make();
+    home.live = [{ pid: 1, sessionId: 'ext', cwd: '/w', status: 'busy' }];
+    await expect(plane.capturePane('ext')).rejects.toBeInstanceOf(NotControllableError);
+    await expect(plane.sendKeys('ext', ['1'])).rejects.toBeInstanceOf(NotControllableError);
+    await expect(plane.detectPrompt('nope')).rejects.toBeInstanceOf(NotFoundError);
+    await expect(plane.sendKeys('nope', ['1'])).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+describe('adoptSession (B4)', () => {  it('resumes external (not live) into tmux', async () => {
     const { plane, tmux, home, registry } = make();
     home.paths.set('ext', '/p/ext.jsonl');
     home.transcripts.set('ext', [JSON.stringify({ type: 'meta', cwd: '/wext', sessionId: 'ext' })]);

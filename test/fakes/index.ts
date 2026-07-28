@@ -12,6 +12,8 @@ export class FakeClock implements Clock {
 export class FakeTmux implements TmuxAdapter {
   sessions = new Map<string, { cwd: string; command: string[] }>();
   sent: { name: string; text: string }[] = [];
+  keys: { name: string; keys: string[] }[] = [];
+  paneText = '';
   async listSessions(): Promise<TmuxSessionInfo[]> {
     return [...this.sessions.keys()].map(name => ({ name, windows: 1, created: 0 }));
   }
@@ -21,7 +23,11 @@ export class FakeTmux implements TmuxAdapter {
     if (!this.sessions.has(name)) throw new Error('no session ' + name);
     this.sent.push({ name, text });
   }
-  async capturePane() { return ''; }
+  async sendKeys(name: string, keys: string[]) {
+    if (!this.sessions.has(name)) throw new Error('no session ' + name);
+    this.keys.push({ name, keys });
+  }
+  async capturePane() { return this.paneText; }
   async killSession(name: string) { this.sessions.delete(name); }
 }
 

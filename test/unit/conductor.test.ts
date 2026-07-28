@@ -60,6 +60,15 @@ describe('AgentConductor', () => {
     expect(r.kind).toBe('reply');
     expect(agent.calls).toHaveLength(1);
   });
+  it('confirming a keys action calls plane.sendKeys on the target session', async () => {
+    const { c, pending, plane } = make(() => 'x');
+    const s = await plane.createSession({ cwd: '/w' });
+    const tmux = (plane as any).d.tmux;
+    await pending.set('k', [{ id: 'a1', conversationId: 'k', kind: 'keys', params: { sessionId: s.sessionId, keys: ['2'] }, description: 'd', createdAt: 1000 }]);
+    const r = await c.handle('k', '确认');
+    expect(r.kind).toBe('executed');
+    expect(tmux.keys.at(-1)).toEqual({ name: 'lifestream-' + s.sessionId.slice(0, 8), keys: ['2'] });
+  });
 });
 
 describe('formatResult', () => {

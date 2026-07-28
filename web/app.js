@@ -28,6 +28,7 @@ const state = {
   windowStart: 0,                // 窗口起点索引
   pending: [],                   // 信使待确认动作
   messengerTimer: null,
+  promptTimer: null,             // 受控会话交互选择器轮询
 };
 
 /* ---------------- boot ---------------- */
@@ -130,18 +131,28 @@ function streamCard(o) {
 async function selectStream(sel) {
   state.current = sel;
   if (state.messengerTimer) { clearInterval(state.messengerTimer); state.messengerTimer = null; }
+  if (state.promptTimer) { clearInterval(state.promptTimer); state.promptTimer = null; }
   renderRail();
   $('placeholder').style.display = 'none';
   $('consoleView').style.display = 'flex';
   $('app').classList.add('show-console');
   renderHeader();
   $('confirmBox').style.display = 'none';
+  hidePrompt();
 
   await loadStreamMessages(true);
 
   if (sel.kind === 'messenger') {
     await loadPending();
     state.messengerTimer = setInterval(() => { if (state.current && state.current.kind === 'messenger') loadStreamMessages(false); }, 5000);
+  } else if (sel.kind === 'session') {
+    const s = state.sessions.get(sel.id);
+    if (s && s.controllable) {
+      loadSessionPrompt();
+      state.promptTimer = setInterval(() => {
+        if (state.current && state.current.kind === 'session' && state.current.id === sel.id) loadSessionPrompt();
+      }, 3000);
+    }
   }
 }
 
@@ -399,6 +410,47 @@ async function confirmDecision(word) {
   handleAgentResult(res);
 }
 
+/* --------- 受控会话交互选择器（远程按键应答） --------- */
+async function loadSessionPrompt() {
+  const sel = state.current;
+  if (!sel || sel.kind !== 'session') return;
+  const id = sel.id;
+  try {
+    const r = await api(`/api/sessions/${id}/prompt`);
+    if (!r.ok) { hidePrompt(); return; }
+    const p = await r.json();
+    if (state.current && state.current.kind === 'session' && state.current.id === id && p && p.options && p.options.length) renderPrompt(p);
+    else hidePrompt();
+  } catch { hidePrompt(); }
+}
+function renderPrompt(p) {
+  $('promptQuestion').textContent = p.question || (p.kind === 'permission' ? '会话请求授权确认' : '会话在等待你选择');
+  const opts = $('promptOptions'); opts.innerHTML = '';
+  for (const o of p.options) {
+    const b = document.createElement('button');
+    b.className = 'btn'; b.textContent = `${o.key}. ${o.label}`;
+    b.onclick = () => sendSessionKeys([o.key]);
+    opts.appendChild(b);
+  }
+  const keys = $('promptKeys'); keys.innerHTML = '';
+  for (const [label, key] of [['↑', 'Up'], ['↓', 'Down'], ['⏎ 确认', 'Enter'], ['Esc', 'Escape']]) {
+    const b = document.createElement('button');
+    b.className = 'btn btn--ghost'; b.textContent = label;
+    b.onclick = () => sendSessionKeys([key]);
+    keys.appendChild(b);
+  }
+  $('promptBox').style.display = 'block';
+}
+function hidePrompt() { $('promptBox').style.display = 'none'; }
+async function sendSessionKeys(keys) {
+  const sel = state.current;
+  if (!sel || sel.kind !== 'session') return;
+  const r = await api(`/api/sessions/${sel.id}/keys`, { method: 'POST', body: JSON.stringify({ keys }) });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); toast(j.error ? j.error.message : '按键发送失败'); return; }
+  toast('已发送: ' + keys.join(' '));
+  setTimeout(() => loadSessionPrompt(), 600);
+}
+
 async function adopt(id) {
   const s = state.sessions.get(id);
   const label = (s && s.name) || id.slice(0, 8);
@@ -422,6 +474,8 @@ async function archiveSession(id) {
   state.sessions.delete(id);
   if (state.current && state.current.kind === 'session' && state.current.id === id) {
     state.current = null;
+    if (state.promptTimer) { clearInterval(state.promptTimer); state.promptTimer = null; }
+    hidePrompt();
     $('consoleView').style.display = 'none';
     $('placeholder').style.display = 'grid';
     $('app').classList.remove('show-console');

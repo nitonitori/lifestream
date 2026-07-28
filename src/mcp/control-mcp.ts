@@ -22,6 +22,8 @@ export function makeTools(d: McpDeps): ToolMap {
       const s = await d.plane.getSession(a.sessionId);
       return { status: s.status, live: s.live, controllable: s.controllable };
     },
+    // 只读：查看受控会话是否卡在 TUI 选择器上(权限框/AskUserQuestion)，两模式均可，免确认。
+    get_session_prompt: (a) => d.plane.detectPrompt(a.sessionId),
   };
 
   if (d.mode === 'direct') {
@@ -30,6 +32,7 @@ export function makeTools(d: McpDeps): ToolMap {
       send_to_session: async (a) => { await d.plane.sendMessage(a.sessionId, a.text); return { ok: true }; },
       create_session: (a) => d.plane.createSession(a),
       adopt_session: (a) => d.plane.adoptSession(a.sessionId, { force: a.force }),
+      send_keys: async (a) => { await d.plane.sendKeys(a.sessionId, a.keys); return { ok: true }; },
     };
   }
 
@@ -50,6 +53,7 @@ export function makeTools(d: McpDeps): ToolMap {
     propose_send_to_session: (a) => stage('send', { sessionId: a.sessionId, text: a.text }),
     propose_create_session: (a) => stage('create', a),
     propose_adopt_session: (a) => stage('adopt', { sessionId: a.sessionId, force: a.force }),
+    propose_send_keys: (a) => stage('keys', { sessionId: a.sessionId, keys: a.keys }),
   };
 }
 
@@ -67,15 +71,18 @@ export async function buildMcpServer(d: McpDeps): Promise<any> {
   server.tool('list_sessions', {}, wrap(tools.list_sessions));
   server.tool('get_messages', { sessionId: z.string(), limit: z.number().optional(), sinceUuid: z.string().optional() }, wrap(tools.get_messages));
   server.tool('get_status', { sessionId: z.string() }, wrap(tools.get_status));
+  server.tool('get_session_prompt', { sessionId: z.string() }, wrap(tools.get_session_prompt));
 
   if (d.mode === 'direct') {
     server.tool('send_to_session', { sessionId: z.string(), text: z.string() }, wrap(tools.send_to_session));
     server.tool('create_session', { cwd: z.string(), name: z.string().optional(), model: z.string().optional(), initialPrompt: z.string().optional() }, wrap(tools.create_session));
     server.tool('adopt_session', { sessionId: z.string(), force: z.boolean().optional() }, wrap(tools.adopt_session));
+    server.tool('send_keys', { sessionId: z.string(), keys: z.array(z.string()) }, wrap(tools.send_keys));
   } else {
     server.tool('propose_send_to_session', { sessionId: z.string(), text: z.string() }, wrap(tools.propose_send_to_session));
     server.tool('propose_create_session', { cwd: z.string(), name: z.string().optional(), model: z.string().optional(), initialPrompt: z.string().optional() }, wrap(tools.propose_create_session));
     server.tool('propose_adopt_session', { sessionId: z.string(), force: z.boolean().optional() }, wrap(tools.propose_adopt_session));
+    server.tool('propose_send_keys', { sessionId: z.string(), keys: z.array(z.string()) }, wrap(tools.propose_send_keys));
   }
   return server;
 }

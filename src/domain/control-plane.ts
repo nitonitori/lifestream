@@ -4,6 +4,7 @@ import type { SessionSummary, SessionDetail, TranscriptEvent, PlaneEvent } from 
 import { NotFoundError, NotControllableError, ConflictError } from './errors.js';
 import { parseTranscript } from './transcript-parser.js';
 import { buildSummaries } from './session-discovery.js';
+import { parseInteractivePrompt, type InteractivePrompt } from './interactive-prompt.js';
 
 export function tmuxNameFor(id: string) { return 'lifestream-' + id.slice(0, 8); }
 
@@ -73,17 +74,35 @@ export class ControlPlane extends EventEmitter {
     return events;
   }
 
-  async sendMessage(id: string, text: string): Promise<void> {
+  // 受控会话的 tmux 名守卫：受控且 tmux 存活 → 返回 tmux 名；
+  // 是外部存活会话 → NotControllable(需先接管)；否则 NotFound。
+  private async managedTmuxName(id: string): Promise<string> {
     const entry = await this.d.registry.get(id);
-    if (entry && await this.d.tmux.hasSession(entry.tmuxSession)) {
-      await this.d.tmux.sendText(entry.tmuxSession, text);
-      return;
-    }
+    if (entry && await this.d.tmux.hasSession(entry.tmuxSession)) return entry.tmuxSession;
     const live = await this.d.home.readLiveSessions();
     if (live.some(l => l.sessionId === id)) {
       throw new NotControllableError('session is external/not managed; adopt it first: ' + id);
     }
     throw new NotFoundError('session not found: ' + id);
+  }
+
+  async sendMessage(id: string, text: string): Promise<void> {
+    await this.d.tmux.sendText(await this.managedTmuxName(id), text);
+  }
+
+  // 抓取受控会话当前 pane 文本(用于识别是否卡在交互选择器)。
+  async capturePane(id: string): Promise<string> {
+    return this.d.tmux.capturePane(await this.managedTmuxName(id));
+  }
+
+  // 识别受控会话是否停在 TUI 选择器上；返回结构化提示或 null。
+  async detectPrompt(id: string): Promise<InteractivePrompt | null> {
+    return parseInteractivePrompt(await this.capturePane(id));
+  }
+
+  // 向受控会话发送原始按键(应答选择器)，如 ['2'] / ['Down'] / ['Enter']。
+  async sendKeys(id: string, keys: string[]): Promise<void> {
+    await this.d.tmux.sendKeys(await this.managedTmuxName(id), keys);
   }
 
   async createSession(opts: { cwd: string; name?: string; model?: string; permissionMode?: string; initialPrompt?: string }): Promise<SessionSummary> {

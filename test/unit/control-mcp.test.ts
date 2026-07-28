@@ -35,4 +35,30 @@ describe('MCP tools', () => {
     const { tools } = setup('im');
     expect((tools as any).send_to_session).toBeUndefined();
   });
+  it('get_session_prompt is read-only and present in both modes', async () => {
+    for (const mode of ['direct', 'im'] as const) {
+      const { tools, plane } = setup(mode);
+      expect(typeof (tools as any).get_session_prompt).toBe('function');
+      const s = await plane.createSession({ cwd: '/w' });
+      (plane as any).d.tmux.paneText = 'nothing here';
+      expect(await tools.get_session_prompt({ sessionId: s.sessionId })).toBeNull();
+    }
+  });
+  it('direct send_keys reaches the plane', async () => {
+    const { tools, plane } = setup('direct');
+    const s = await plane.createSession({ cwd: '/w' });
+    await tools.send_keys({ sessionId: s.sessionId, keys: ['2'] });
+    expect((plane as any).d.tmux.keys.at(-1)).toEqual({ name: 'lifestream-' + s.sessionId.slice(0, 8), keys: ['2'] });
+  });
+  it('im propose_send_keys stages a keys action', async () => {
+    const { tools, pending } = setup('im');
+    const r = await tools.propose_send_keys({ sessionId: 's1', keys: ['1'] });
+    expect(r.staged).toBe(true);
+    const staged = await pending.get('conv1');
+    expect(staged[0]).toMatchObject({ kind: 'keys', params: { sessionId: 's1', keys: ['1'] } });
+  });
+  it('im has no direct send_keys tool', () => {
+    const { tools } = setup('im');
+    expect((tools as any).send_keys).toBeUndefined();
+  });
 });
