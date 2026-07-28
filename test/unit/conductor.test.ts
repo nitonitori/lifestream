@@ -60,6 +60,23 @@ describe('AgentConductor', () => {
     expect(r.kind).toBe('reply');
     expect(agent.calls).toHaveLength(1);
   });
+  it('onAgentStart fires before the slow agent turn', async () => {
+    const order: string[] = [];
+    const { c, agent } = make(() => { order.push('agent'); return 'x'; });
+    await c.handle('k', '在吗', { onAgentStart: async () => { order.push('ack'); } });
+    expect(order).toEqual(['ack', 'agent']);
+    expect(agent.calls).toHaveLength(1);
+  });
+  it('onAgentStart does not fire on fast paths (confirm/cancel/expired)', async () => {
+    for (const [word, t] of [['确认', 1000], ['取消', 1000], ['确认', 999999]] as const) {
+      const { c, pending, clock } = make(() => 'x');
+      await pending.set('k', [{ id: 'a1', conversationId: 'k', kind: 'create', params: { cwd: '/w' }, description: 'd', createdAt: 0 }]);
+      clock.t = t;
+      let acked = false;
+      await c.handle('k', word, { onAgentStart: () => { acked = true; } });
+      expect(acked).toBe(false);
+    }
+  });
   it('confirming a keys action calls plane.sendKeys on the target session', async () => {
     const { c, pending, plane } = make(() => 'x');
     const s = await plane.createSession({ cwd: '/w' });

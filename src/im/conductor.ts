@@ -42,7 +42,13 @@ export class AgentConductor {
     return '未知动作';
   }
 
-  async handle(conversationKey: string, text: string): Promise<ConductorResult> {
+  // onAgentStart 只在即将进入慢的 agent 轮次前触发（确认/取消/超时等快路径不触发），
+  // 供 IM 侧先发一条“已收到”反馈。
+  async handle(
+    conversationKey: string,
+    text: string,
+    opts?: { onAgentStart?: () => void | Promise<void> },
+  ): Promise<ConductorResult> {
     const pend = await this.d.pending.get(conversationKey);
     if (pend.length > 0) {
       const oldest = Math.min(...pend.map(a => a.createdAt));
@@ -67,6 +73,7 @@ export class AgentConductor {
       await this.d.pending.clear(conversationKey);
     }
 
+    await opts?.onAgentStart?.();
     const reply = await this.d.agent.handle(conversationKey, text);
     const staged = await this.d.pending.get(conversationKey);
     if (staged.length > 0) return { kind: 'staged', reply, actions: staged };

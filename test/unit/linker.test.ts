@@ -38,7 +38,7 @@ describe('ImLinker (E1)', () => {
     im.inbox.push(inbound({ text: '列出会话' }));
     await linker.tick();
     expect(agent.calls[0]).toEqual({ key: 'messenger', text: '列出会话' });
-    expect(im.outbox[0].text).toContain('here are sessions');
+    expect(im.outbox.at(-1)!.text).toContain('here are sessions');
   });
   it('dedups same msgId', async () => {
     const { im, agent, linker } = make(() => 'x');
@@ -56,13 +56,29 @@ describe('ImLinker (E1)', () => {
     });
     im.inbox.push(inbound({ text: '新建' }));
     await linker.tick();
-    expect(im.outbox[0].text).toContain('确认');
+    expect(im.outbox.at(-1)!.text).toContain('确认');
+  });
+  it('sends a quick ack before the slow agent turn, then the result', async () => {
+    const { im, linker } = make(() => 'here are sessions');
+    im.inbox.push(inbound({ text: '列出会话' }));
+    await linker.tick();
+    expect(im.outbox).toHaveLength(2);
+    expect(im.outbox[0].text).toContain('收到');
+    expect(im.outbox[1].text).toContain('here are sessions');
+  });
+  it('does not ack fast decision paths (bare 确认 executes directly)', async () => {
+    const { im, pending, linker } = make(() => 'x');
+    await pending.set('messenger', [{ id: 'a1', conversationId: 'messenger', kind: 'create', params: { cwd: '/w' }, description: 'd', createdAt: 1000 }]);
+    im.inbox.push(inbound({ text: '确认' }));
+    await linker.tick();
+    expect(im.outbox).toHaveLength(1);
+    expect(im.outbox[0].text).not.toContain('收到');
   });
   it('agent error still replies and continues', async () => {
     const { im, linker } = make(() => { throw new Error('boom'); });
     im.inbox.push(inbound());
     await linker.tick();
-    expect(im.outbox[0].text).toMatch(/出错|error/i);
+    expect(im.outbox.at(-1)!.text).toMatch(/出错|error/i);
   });
 });
 
@@ -79,7 +95,7 @@ describe('ImLinker prefix routing (self-chat)', () => {
     im.inbox.push(inbound({ text: '/ai 列出会话' }));
     await linker.tick();
     expect(agent.calls[0]).toEqual({ key: 'messenger', text: '列出会话' });
-    expect(im.outbox[0].text).toContain('ok');
+    expect(im.outbox.at(-1)!.text).toContain('ok');
   });
   it('with prefix: bare 确认/取消 routes only while pending exists', async () => {
     const { im, agent, pending, linker } = make(() => 'x', '/ai');

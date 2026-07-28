@@ -1,6 +1,8 @@
 import type { ImAdapter, InboundMessage, PendingActionStore } from '../ports/index.js';
 import { AgentConductor, formatResult } from './conductor.js';
 
+export const ACK_TEXT = '收到，正在处理…';
+
 export interface LinkerDeps {
   im: ImAdapter;
   conductor: AgentConductor;
@@ -59,7 +61,10 @@ export class ImLinker {
       this.d.onAudit?.(m, true);
       try {
         if (!routed) { await this.d.im.send(m.conversationId, `用法：${this.d.commandPrefix} <指令>`); continue; }
-        const result = await this.d.conductor.handle(this.d.conversationKey, routed);
+        const result = await this.d.conductor.handle(this.d.conversationKey, routed, {
+          // agent 轮次可能耗时数十秒，先回一条“已收到”，让对话有即时反馈
+          onAgentStart: () => this.d.im.send(m.conversationId, ACK_TEXT).catch(() => {}),
+        });
         await this.d.im.send(m.conversationId, formatResult(result));
       } catch (e: any) {
         await this.d.im.send(m.conversationId, `处理出错: ${e.message}`).catch(() => {});
