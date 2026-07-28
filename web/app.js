@@ -27,6 +27,7 @@ const state = {
   renderedKeys: new Set(),       // 已渲染事件 key
   windowStart: 0,                // 窗口起点索引
   pending: [],                   // 信使待确认动作
+  pendingLocal: [],              // 已乐观渲染、待被转录事件回收的用户气泡 { text }
   messengerTimer: null,
   promptTimer: null,             // 受控会话交互选择器轮询
 };
@@ -209,6 +210,7 @@ function setEvents(events, reset) {
   if (reset) {
     state.events = events;
     state.renderedKeys = new Set();
+    state.pendingLocal = [];   // 乐观气泡随 DOM 一并作废，转录已含用户消息
     $('messages').innerHTML = '';
     state.windowStart = Math.max(0, events.length - MAX_RENDER);
     for (let i = state.windowStart; i < events.length; i++) appendNode(events[i]);
@@ -224,6 +226,7 @@ function setEvents(events, reset) {
     const key = eventKey(e);
     if (!key || state.renderedKeys.has(key)) continue;
     state.events.push(e);
+    if (adoptLocalBubble(e)) continue;   // 复用已在 DOM 的乐观气泡，不新建节点
     appendNode(e);
     added++;
   }
@@ -238,11 +241,24 @@ function pushEvent(e) { // from SSE for current session
   const view = $('streamView');
   const wasBottom = atBottom(view);
   state.events.push(e);
+  if (adoptLocalBubble(e)) return;   // 复用乐观气泡，不新建节点
   appendNode(e);
   if (wasBottom) view.scrollTop = view.scrollHeight; else bumpJump(1);
 }
 
 function eventKey(e) { return e.uuid || null; }
+
+// 转录回收乐观气泡：同文本的用户消息只保留已在 DOM 的那一个，登记 uuid 防重复
+function adoptLocalBubble(e) {
+  if (!e || e.kind !== 'user') return false;
+  const key = eventKey(e);
+  if (!key) return false;
+  const i = state.pendingLocal.findIndex(p => p.text === e.text);
+  if (i < 0) return false;
+  state.pendingLocal.splice(i, 1);
+  state.renderedKeys.add(key);
+  return true;
+}
 
 function renderedAny() { return $('messages').childElementCount > 0; }
 function showEmptyHint() {
@@ -371,6 +387,7 @@ function pushLocalUser(text) {
   if (hint) hint.remove();
   const b = bubble('user', '你', text);
   $('messages').appendChild(b);
+  state.pendingLocal.push({ text });   // 记录以便被转录事件回收，避免重复渲染
   view.scrollTop = view.scrollHeight;
 }
 
