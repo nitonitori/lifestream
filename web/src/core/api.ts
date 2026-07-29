@@ -22,8 +22,8 @@ export interface DeviceInfo {
   current: boolean;
 }
 
-// 与 src/im/conductor.ts 的 ConductorResult 同构。不 import 那个模块：它是值模块，
-// 会把 control-plane 及其一串 node 依赖拖进前端 bundle。字段对不上时编译期会在视图侧暴露。
+// 与 src/im/conductor.ts 的 ConductorResult 同构。不 import 那个模块：它经 domain/control-plane
+// 用到 node 全局，而 tsconfig.web.json 的 "types": [] 没有 @types/node，一 import 整个 web 程序就编译不过。
 export type AgentResult =
   | { kind: 'reply'; text: string }
   | { kind: 'staged'; reply: string; actions: PendingAction[] }
@@ -60,9 +60,11 @@ const enc = encodeURIComponent;
 export function createApi(onUnauthorized: () => void): Api {
   async function call<T>(path: string, opts: Opts = {}): Promise<T> {
     const { silent401, ...init } = opts;
+    // 无 body 时不能带 content-type: application/json —— Fastify 解析 body 阶段就以 400 拒掉，早于鉴权。
+    const headers = init.body == null ? undefined : { 'content-type': 'application/json' };
     const r = await fetch(path, {
       credentials: 'same-origin',
-      headers: { 'content-type': 'application/json' },
+      headers,
       ...init,
     });
     if (r.status === 401 && !silent401) onUnauthorized();
