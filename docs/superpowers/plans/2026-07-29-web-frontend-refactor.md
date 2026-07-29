@@ -205,9 +205,12 @@ export interface Store<S> {
 interface Sub<S> { select: (s: S) => any; cb: (v: any) => void; last: any }
 
 // 一层浅比较：selector 返回对象字面量（如 { busy, idle }）时不至于每次 update 都触发重渲染。
+// 只对普通对象/数组做这层浅比较；其它对象（Map/Set/Date…）按引用比 —— 它们的内容不在自有键上，
+// 浅比较会把两个内容不同的实例判等，宁可多通知一次，绝不漏通知。
 function same(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Object.getPrototypeOf(a) !== Object.prototype && !Array.isArray(a)) return false;
   const ka = Object.keys(a);
   const kb = Object.keys(b);
   if (ka.length !== kb.length) return false;
@@ -650,13 +653,15 @@ describe('timeline: uuid 去重', () => {
     expect(t.accept(user('u1', 'hi'))).toEqual({ append: false });
   });
 
-  it('无 uuid 的 meta 事件：首屏渲染、增量轮询跳过、SSE 单条照常追加', () => {
+  it('无 uuid 的 meta 事件：首屏渲染、增量轮询跳过、SSE 单条丢弃', () => {
     const t = createTimeline();
     expect(t.reset([META]).render).toEqual([META]);
     const t2 = createTimeline();
     t2.reset([]);
     expect(t2.ingest([META]).append).toEqual([]);   // 无法去重，追加会每轮重复
-    expect(t2.accept(META)).toEqual({ append: true }); // SSE 只送达一次
+    // 服务端每次转录写入都会重播，来多少次都丢弃
+    expect(t2.accept(META)).toEqual({ append: false });
+    expect(t2.accept(META)).toEqual({ append: false });
   });
 });
 
@@ -778,10 +783,10 @@ export function createTimeline(): Timeline {
     },
 
     accept(event) {
-      events.push(event);
       const k = keyOf(event);
-      if (k === null) return { append: true };  // SSE 单条只送达一次，无需去重
+      if (k === null) return { append: false };  // 无 uuid 无法去重，服务端每次转录写入都重播，追加会虚增
       if (rendered.has(k)) return { append: false };
+      events.push(event);
       if (adoptLocal(event)) return { append: false };
       rendered.add(k);
       return { append: true };
@@ -806,7 +811,7 @@ export function createTimeline(): Timeline {
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run test/unit/web-timeline.test.ts
 ```
 
-预期：全部 passed（10 个）。
+预期：全部 passed（11 个）。
 
 - [ ] **Step 5: 前端类型检查**
 
