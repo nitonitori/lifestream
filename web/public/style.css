@@ -220,6 +220,11 @@ button, input, textarea { font-family: inherit; color: inherit; }
 .device__meta { grid-column: 1; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 .device__revoke { grid-column: 2; grid-row: 1 / span 2; }
 
+/* ---------- Dialog (confirm / prompt) ---------- */
+.modal__body { color: var(--muted); font-size: 13px; margin-bottom: 16px; white-space: pre-wrap; }
+.modal__row { display: flex; justify-content: flex-end; gap: 8px; }
+.modal__input { width: 100%; margin-bottom: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; color: var(--ink); font-family: var(--font-mono); font-size: 13px; }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 760px) {
   .body { grid-template-columns: 1fr; }
