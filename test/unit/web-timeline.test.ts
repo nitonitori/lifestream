@@ -72,13 +72,15 @@ describe('timeline: uuid 去重', () => {
     expect(t.accept(user('u1', 'hi'))).toEqual({ append: false });
   });
 
-  it('无 uuid 的 meta 事件：首屏渲染、增量轮询跳过、SSE 单条照常追加', () => {
+  it('无 uuid 的 meta 事件：首屏渲染、增量轮询跳过、SSE 单条丢弃', () => {
     const t = createTimeline();
     expect(t.reset([META]).render).toEqual([META]);
     const t2 = createTimeline();
     t2.reset([]);
     expect(t2.ingest([META]).append).toEqual([]);   // 无法去重，追加会每轮重复
-    expect(t2.accept(META)).toEqual({ append: true }); // SSE 只送达一次
+    // 服务端每次转录写入都会重播，来多少次都丢弃
+    expect(t2.accept(META)).toEqual({ append: false });
+    expect(t2.accept(META)).toEqual({ append: false });
   });
 });
 

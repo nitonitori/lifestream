@@ -61,10 +61,10 @@ export function createTimeline(): Timeline {
     },
 
     accept(event) {
-      events.push(event);
       const k = keyOf(event);
-      if (k === null) return { append: true };  // SSE 单条只送达一次，无需去重
+      if (k === null) return { append: false };  // 无 uuid 无法去重，服务端每次转录写入都重播，追加会虚增
       if (rendered.has(k)) return { append: false };
+      events.push(event);
       if (adoptLocal(event)) return { append: false };
       rendered.add(k);
       return { append: true };
