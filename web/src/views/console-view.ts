@@ -55,12 +55,15 @@ export function mountConsole(
     ref.kind === 'messenger' ? api.agentMessages() : api.sessionMessages(ref.id);
 
   const reload = async (ref: StreamRef) => {
+    let events: TranscriptEvent[];
     try {
-      const events = await fetchEvents(ref);
-      if (isCurrent(store.getState(), ref)) transcript.reset(events, emptyHint(ref));
+      events = await fetchEvents(ref);
     } catch {
       if (isCurrent(store.getState(), ref)) transcript.reset([], emptyHint(ref));
+      return;
     }
+    // reset 放在 try 外：渲染中途抛错不该落进 catch 去「重置为空」，那会抹掉已画出的部分。
+    if (isCurrent(store.getState(), ref)) transcript.reset(events, emptyHint(ref));
   };
   const poll = async (ref: StreamRef) => {
     try {
@@ -183,7 +186,9 @@ export function mountConsole(
 
   const loadPrompt = async (id: string) => {
     let p: InteractivePrompt | null;
-    try { p = await api.sessionPrompt(id); } catch { clear(promptSlot); return; }
+    // 失败也要先确认还停在这条流上 —— 否则 A 的迟到失败会抹掉 B 刚渲染的面板。
+    try { p = await api.sessionPrompt(id); }
+    catch { if (isCurrent(store.getState(), { kind: 'session', id })) clear(promptSlot); return; }
     // 期间切走了就别动 DOM —— 否则会抹掉新会话刚渲染的面板。
     if (!isCurrent(store.getState(), { kind: 'session', id })) return;
     clear(promptSlot);
@@ -205,13 +210,8 @@ export function mountConsole(
       await loadPending();
       if (!isCurrent(store.getState(), ref)) return;
       messengerTimer = setInterval(() => void poll(ref), MESSENGER_POLL_MS);
-    } else {
-      const x = sessionOf(store.getState(), ref.id);
-      if (x?.controllable) {
-        void loadPrompt(ref.id);
-        promptTimer = setInterval(() => void loadPrompt(ref.id), PROMPT_POLL_MS);
-      }
     }
+    // 会话流的交互选择器轮询不在这里装，见下方 promptTimer 的订阅。
   };
 
   const closeConsole = () => {
@@ -223,8 +223,22 @@ export function mountConsole(
   };
 
   // 头部：current 变化或“当前会话的 summary”变化都重画（后者是今天没有的实时刷新）。
+  // 选择器只投影 renderHead 真正读到的字段 —— 直接返回 summary 对象的话，它在每次
+  // sessionsReplaced/sessionUpserted 后都是新实例，浅比较永不判等，头部按钮会随每个
+  // busy↔idle 心跳整体重建，正落在被替换节点上的那一次点击就丢了。
   store.subscribe(
-    s => ({ ref: s.current, x: s.current?.kind === 'session' ? s.sessions.get(s.current.id) : undefined }),
+    s => {
+      const x = s.current?.kind === 'session' ? s.sessions.get(s.current.id) : undefined;
+      return {
+        ref: s.current,
+        known: x !== undefined,
+        name: x?.name,
+        cwd: x?.cwd,
+        live: x?.live,
+        controllable: x?.controllable,
+        status: x && statusLabel(x),
+      };
+    },
     v => { if (v.ref) renderHead(v.ref); },
   );
 
@@ -237,6 +251,20 @@ export function mountConsole(
   });
 
   store.subscribe(s => s.current, ref => { if (ref) void openStream(ref); else closeConsole(); });
+
+  // 交互选择器轮询：由「当前流是否为可控会话」驱动，而不是只在切流时装一次 ——
+  // 否则在已打开的会话上点「接管」后，要等到下次切流才会开始轮询。
+  // 必须注册在上面那条订阅之后，才能跑在 openStream 同步段的 stopTimers() 之后。
+  store.subscribe(
+    s => (s.current?.kind === 'session' && s.sessions.get(s.current.id)?.controllable ? s.current.id : null),
+    id => {
+      clearInterval(promptTimer); promptTimer = undefined;
+      clear(promptSlot);
+      if (id === null) return;
+      void loadPrompt(id);
+      promptTimer = setInterval(() => void loadPrompt(id), PROMPT_POLL_MS);
+    },
+  );
 
   return {
     onMessage(sessionId, event) {

@@ -224,6 +224,8 @@ button, input, textarea { font-family: inherit; color: inherit; }
 .modal__body { color: var(--muted); font-size: 13px; margin-bottom: 16px; white-space: pre-wrap; }
 .modal__row { display: flex; justify-content: flex-end; gap: 8px; }
 .modal__input { width: 100%; margin-bottom: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; color: var(--ink); font-family: var(--font-mono); font-size: 13px; }
+/* 标题自身不带下边距（设备弹窗靠 .modal__head 撑开），这里用相邻兄弟补出标题与正文/输入框的间距。 */
+.modal__title + .modal__body, .modal__title + .modal__input { margin-top: 10px; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 760px) {
