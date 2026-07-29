@@ -46,12 +46,18 @@
 
 ## 行为差异清单（验收依据）
 
-除以下四条，重构前后页面表现必须一致：
+除以下五条，重构前后页面表现必须一致：
 
 1. **三处原生 `confirm()` / `prompt()` 换成项目 dialog**（接管、结束会话、新建会话）。Esc 或点遮罩取消，prompt 中 Enter 提交。
 2. **修掉一个潜在缺陷**：转录超过 300 条时，今天的增量轮询会把窗口外的旧事件重复追加到消息流末尾（`renderedKeys` 只登记了窗口内的 uuid）。`timeline.reset` 改为登记**全部** uuid，`earlier()` 仍从事件数组取更早的批次，行为因此正确。日常（<300 条）不可见。
 3. **控制台头部改为跟随会话状态实时更新**：今天头部副标题（`运行中 · /path`）在选中后不再刷新，直到重新选中；改为订阅该会话的 summary 切片，SSE 更新即刷新。
 4. **首次访问（无 cookie）的登录页不再显示「会话已失效，请重新登录。」**。今天启动探测 `GET /api/agent/enabled` 拿到 401 后，`api()` 里那句 `if (r.status === 401 && path !== '/api/login') handleUnauth()` 会一并写上这句提示 —— 首次访问的人从未登录过，却被告知会话已失效。重构后启动探测走 `silent401`，提示留空；「会话已失效」只在**登录之后**才可能出现（令牌被撤销/退出本设备）。
+5. **「结束会话」「撤销设备」「退出登录」从坏的变成能用的**。旧 `api()`（`app.js:5`）给每个请求无条件加
+   `content-type: application/json`，而这三个调用点不带 body；Fastify 默认 JSON 解析器在解析阶段就以
+   `400 FST_ERR_CTP_EMPTY_JSON_BODY` 拒掉，早于 `routes.ts:50` 的鉴权 preHandler。所以线上表现是：结束会话
+   toast 显示 `undefined`（`'Bad Request'.message`）且会话没结束；撤销设备 toast「撤销失败」且设备没撤销；
+   退出登录界面回到登录页但 cookie 与设备记录都还在，刷新即又登录。`api.ts` 改为按「是否真的有 body」
+   决定加不加这个头，三者恢复正常 —— 退出登录会真的清 cookie 并删设备记录，结束会话会真的关 tmux 窗口。
 
 ---
 
@@ -879,8 +885,8 @@ export interface DeviceInfo {
   current: boolean;
 }
 
-// 与 src/im/conductor.ts 的 ConductorResult 同构。不 import 那个模块：它是值模块，
-// 会把 control-plane 及其一串 node 依赖拖进前端 bundle。字段对不上时编译期会在视图侧暴露。
+// 与 src/im/conductor.ts 的 ConductorResult 同构。不 import 那个模块：它经 domain/control-plane
+// 用到 node 全局，而 tsconfig.web.json 的 "types": [] 没有 @types/node，一 import 整个 web 程序就编译不过。
 export type AgentResult =
   | { kind: 'reply'; text: string }
   | { kind: 'staged'; reply: string; actions: PendingAction[] }
@@ -917,9 +923,11 @@ const enc = encodeURIComponent;
 export function createApi(onUnauthorized: () => void): Api {
   async function call<T>(path: string, opts: Opts = {}): Promise<T> {
     const { silent401, ...init } = opts;
+    // 无 body 时不能带 content-type: application/json —— Fastify 解析 body 阶段就以 400 拒掉，早于鉴权。
+    const headers = init.body == null ? undefined : { 'content-type': 'application/json' };
     const r = await fetch(path, {
       credentials: 'same-origin',
-      headers: { 'content-type': 'application/json' },
+      headers,
       ...init,
     });
     if (r.status === 401 && !silent401) onUnauthorized();
@@ -2055,6 +2063,11 @@ git rm web/public/app.js
 7. 设备弹窗：打开、列表正确、点遮罩/`×` 关闭；「撤销」其它设备后列表刷新。
 8. dialog：`+ 新建会话` → 输入框弹窗，Esc 取消、Enter 提交；「结束会话」→ 危险色确认框；对运行中的外部会话点「接管」→ 确认框。
 9. 转录窗口化：打开一个消息很多的会话 → 出现「载入更早」，点击后向上补齐且视口位置不跳。
+10. 三个曾被 400 拦掉的动作（行为差异第 5 条）现在要看**结果**而非只看 toast：
+    - 「结束会话」确认后 → toast「已结束会话」（不是 `undefined`），卡片从侧栏消失，`tmux list-windows` 里该窗口没了。
+    - 设备弹窗里「撤销」一个**非当前**设备 → toast「已撤销」，列表刷新后该设备消失。
+    - 「退出登录」→ 回到登录卡；**刷新页面仍停在登录卡**（旧版会直接又登录进去），且该设备已从设备列表移除。
+      验完需要重新用 `cli.ts token` 取令牌登录。
 
 - [ ] **Step 12: 提交**
 

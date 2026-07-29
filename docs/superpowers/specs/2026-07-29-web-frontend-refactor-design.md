@@ -235,6 +235,11 @@ promptDialog(o: { title: string; label?: string; placeholder?: string }): Promis
 
 其余行为逐字保持不变。**验收标准即：重构前后页面表现一致。**
 
+> 实施期间实测发现的既有缺陷，经确认一并修掉，构成第二条可见变化：旧 `api()` 给每个请求无条件加
+> `content-type: application/json`，而「结束会话」「撤销设备」「退出登录」三个请求不带 body，
+> 被 Fastify 以 `400 FST_ERR_CTP_EMPTY_JSON_BODY` 在鉴权前拒掉 —— 这三个功能在重构前一直是坏的。
+> 完整的行为差异清单见实施计划开头。
+
 ## 8. 错误处理
 
 | 来源 | 处理 |
