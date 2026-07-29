@@ -1,6 +1,6 @@
 node_modules/
 dist/
-public/
+/public/
 *.log
 .DS_Store
 lifestream.config.json

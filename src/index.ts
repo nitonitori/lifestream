@@ -59,7 +59,7 @@ export async function startServer(cfg: Config, file = 'lifestream.config.json'):
     return sid ? plane.getMessages(sid) : [];
   };
 
-  const webRoot = join(dirname(fileURLToPath(import.meta.url)), '../web');
+  const webRoot = join(dirname(fileURLToPath(import.meta.url)), '../web/public');
   const app = await buildHttp({
     plane, token: cfg.web.token, sse, webRoot,
     devices: new FileDeviceStore(join(cfg.paths.stateDir, 'devices.json')),

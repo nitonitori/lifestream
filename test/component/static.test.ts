@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 it('serves index.html at / (C4)', async () => {
-  const webRoot = join(dirname(fileURLToPath(import.meta.url)), '../../web');
+  const webRoot = join(dirname(fileURLToPath(import.meta.url)), '../../web/public');
   const plane = new ControlPlane({
     tmux: new FakeTmux(), home: new FakeClaudeHome(), registry: new InMemoryManagedRegistry(),
     clock: new FakeClock(), claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'x',
