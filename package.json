@@ -3,27 +3,33 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24" },
-  "bin": { "lifestream": "./dist/cli.js" },
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "lifestream": "./dist/cli.js"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.web.json",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && npm run build:web",
+    "build:web": "esbuild web/src/main.ts --bundle --format=esm --target=es2022 --minify --sourcemap --outfile=web/public/app.js",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js"
   },
   "dependencies": {
-    "fastify": "^5.2.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/static": "^8.0.4",
     "@modelcontextprotocol/sdk": "^1.12.0",
+    "fastify": "^5.2.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.1",
     "tsx": "^4.19.0",
-    "vitest": "^3.0.0",
-    "@types/node": "^24.0.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   }
 }

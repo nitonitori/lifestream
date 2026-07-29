@@ -65,21 +65,8 @@
             <div class="console__actions" id="cvActions"></div>
           </div>
 
-          <div class="confirm" id="confirmBox" style="display:none;">
-            <div class="confirm__title">待确认操作</div>
-            <ul class="confirm__list" id="confirmList"></ul>
-            <div class="confirm__row">
-              <button class="btn btn--warn" id="confirmYes">确认执行</button>
-              <button class="btn btn--ghost" id="confirmNo">取消</button>
-            </div>
-          </div>
-
-          <div class="confirm" id="promptBox" style="display:none;">
-            <div class="confirm__title">会话在等待选择</div>
-            <div class="confirm__hint mono" id="promptQuestion"></div>
-            <div class="confirm__row" id="promptOptions"></div>
-            <div class="confirm__row" id="promptKeys"></div>
-          </div>
+          <div id="confirmSlot"></div>
+          <div id="promptSlot"></div>
 
           <div class="stream-view" id="streamView">
             <button class="iconbtn loadmore" id="loadMore" style="display:none;">载入更早</button>
@@ -114,6 +101,6 @@
     </div>
   </div>
 
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

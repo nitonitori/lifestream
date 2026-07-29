@@ -8,3 +8,5 @@ lifestream.config.json
 coverage/
 .playwright-mcp/
 *.png
+web/public/app.js
+web/public/app.js.map
