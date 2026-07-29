@@ -239,6 +239,10 @@ promptDialog(o: { title: string; label?: string; placeholder?: string }): Promis
 > `content-type: application/json`，而「结束会话」「撤销设备」「退出登录」三个请求不带 body，
 > 被 Fastify 以 `400 FST_ERR_CTP_EMPTY_JSON_BODY` 在鉴权前拒掉 —— 这三个功能在重构前一直是坏的。
 > 完整的行为差异清单见实施计划开头。
+>
+> 第三条来自架构本身：点击**当前已选中**的卡片不再重载消息。旧 `selectStream()` 无条件重跑，等于一次手动刷新；
+> 新架构下 store 对 `s.current` 的 `{kind, id}` 浅比较判等，订阅不回调。头部「刷新」按钮覆盖该需求，
+> 不为此破坏 store 的浅比较契约。
 
 ## 8. 错误处理
 
