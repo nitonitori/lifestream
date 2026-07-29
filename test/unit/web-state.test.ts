@@ -26,6 +26,15 @@ describe('reducers', () => {
     expect(s2.sessions).not.toBe(s1.sessions);
   });
 
+  it('sessionUpserted 新 id 走插入路径', () => {
+    const s1 = sessionsReplaced([S({ sessionId: 'a' })])(initialState);
+    const s2 = sessionUpserted(S({ sessionId: 'b', status: 'busy' }))(s1);
+    expect(s1.sessions.size).toBe(1);
+    expect(s2.sessions.size).toBe(2);
+    expect(s2.sessions.get('b')!.status).toBe('busy');
+    expect(s2.sessions.get('a')).toBe(s1.sessions.get('a'));
+  });
+
   it('sessionRemoved 删条目但不清 current（SSE 移除不关闭控制台）', () => {
     const s1 = streamSelected({ kind: 'session', id: 'a' })(sessionsReplaced([S({ sessionId: 'a' })])(initialState));
     const s2 = sessionRemoved('a')(s1);

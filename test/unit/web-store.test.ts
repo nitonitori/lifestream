@@ -30,11 +30,23 @@ describe('createStore', () => {
     expect(calls).toBe(2);
   });
 
-  it('reducer 返回同一引用时不通知', () => {
-    const store = createStore({ n: 1 });
+  it('内容不同的 Map 算变化（浅比较不得把两个 Map 判等）', () => {
+    const store = createStore({ sessions: new Map([['a', 1]]) });
     let calls = 0;
-    store.subscribe(s => s.n, () => { calls++; });
+    store.subscribe(s => s.sessions, () => { calls++; });
+    expect(calls).toBe(1);
+    store.update(s => ({ ...s, sessions: new Map([['a', 1], ['b', 2]]) }));
+    expect(calls).toBe(2);
+  });
+
+  it('reducer 返回同一引用时不通知（连 selector 都不再调用）', () => {
+    const store = createStore({ n: 1 });
+    let selects = 0;
+    let calls = 0;
+    store.subscribe(s => { selects++; return s.n; }, () => { calls++; });
+    expect(selects).toBe(1);
     store.update(s => s);
+    expect(selects).toBe(1);
     expect(calls).toBe(1);
   });
 

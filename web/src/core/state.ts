@@ -46,6 +46,7 @@ export const connChanged = (conn: Conn) => (s: AppState): AppState => ({ ...s, c
 export const pendingSet = (pending: PendingAction[]) => (s: AppState): AppState => ({ ...s, pending });
 export const agentEnabledSet = (agentEnabled: boolean) => (s: AppState): AppState => ({ ...s, agentEnabled });
 
+// 启动探测的 401 静默处理（authNotice 留空）：失效提示只该出现在「真的登录过、之后会话过期」时，见 unauthorized。
 export const authProbed = (ok: boolean) => (s: AppState): AppState =>
   ({ ...s, auth: ok ? 'in' : 'out', authNotice: '' });
 export const unauthorized = () => (s: AppState): AppState =>
