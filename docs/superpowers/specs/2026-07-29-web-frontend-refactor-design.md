@@ -1,6 +1,6 @@
 # DESIGN: Web 前端重构（模块化 + TS 化）
 
-- Status: Approved (设计已确认，待实施)
+- Status: Implemented (2026-07-30)
 - Date: 2026-07-29
 - Related: [SPEC](./2026-07-27-lifestream-spec.md) · [RFC](./2026-07-27-lifestream-rfc.md)
 
@@ -227,7 +227,7 @@ export function connectStream(h: {
 
 ```ts
 confirmDialog(o: { title: string; body: string; okText?: string; danger?: boolean }): Promise<boolean>;
-promptDialog(o: { title: string; label?: string; placeholder?: string }): Promise<string | null>;
+promptDialog(o: { title: string }): Promise<string | null>;
 ```
 
 复用现有 `.modal` / `.modal__card` 样式，补少量 CSS。交互：Esc 或点击遮罩取消，

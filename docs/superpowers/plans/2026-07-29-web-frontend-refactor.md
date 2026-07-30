@@ -46,7 +46,7 @@
 
 ## 行为差异清单（验收依据）
 
-除以下六条，重构前后页面表现必须一致：
+除以下七条，重构前后页面表现必须一致：
 
 1. **三处原生 `confirm()` / `prompt()` 换成项目 dialog**（接管、结束会话、新建会话）。Esc 或点遮罩取消，prompt 中 Enter 提交。
 2. **修掉一个潜在缺陷**：转录超过 300 条时，今天的增量轮询会把窗口外的旧事件重复追加到消息流末尾（`renderedKeys` 只登记了窗口内的 uuid）。`timeline.reset` 改为登记**全部** uuid，`earlier()` 仍从事件数组取更早的批次，行为因此正确。日常（<300 条）不可见。
@@ -63,6 +63,10 @@
    重复选中判等、订阅不回调，`openStream()` 不再重跑。头部的「刷新」按钮覆盖了这个需求，故不为此破坏 store 的
    浅比较契约。连带影响已在 Task 6 修复轮消除：交互选择器轮询改由「当前流是否为可控会话」的订阅驱动，
    不再依赖「重点卡片以重跑 openStream」这条已消失的恢复路径。
+7. **启动探测非 401 失败时停在登录页**（最终审查发现，非计划原意）。旧 `boot()`（`app.js:47-52`）对
+   `GET /api/agent/enabled` 的失败一律 `r.json().catch(() => ({ enabled: false }))` 后继续 `boot()`，
+   于是服务端 500 之类的故障也会**进入应用**，随后每个接口再各自失败。新版 `main.ts` 把任何失败都归为
+   `authProbed(false)`，停在登录页且提示区留空。新行为更合理（未鉴权成功就不该进应用），登记于此。
 
 ---
 
@@ -80,7 +84,7 @@
 - Consumes: 无
 - Produces: `web/public/` 是 `@fastify/static` 的 root；`web/src/` 目录已建好，后续 Task 往里加 TS 模块。
 
-- [ ] **Step 1: 先修 `.gitignore`（不修就会静默丢文件）**
+- [x] **Step 1: 先修 `.gitignore`（不修就会静默丢文件）**
 
 `.gitignore:3` 的裸 `public/` 会匹配**任意深度**的 `public/`，包含 `web/public/`。先验证再改：
 
@@ -101,7 +105,7 @@ dist/
 
 再次执行 `git check-ignore -v web/public/index.html`，预期**无输出、退出码 1**（不再被忽略）。
 
-- [ ] **Step 2: 建目录并移动三个静态文件**
+- [x] **Step 2: 建目录并移动三个静态文件**
 
 ```bash
 mkdir -p web/public web/src
@@ -113,7 +117,7 @@ git status --short
 
 预期：三个 `R` 重命名条目 + `.gitignore` 的 `M`。`web/` 下只剩 `public/` 与空的 `src/`。
 
-- [ ] **Step 3: 改 webRoot（后端唯一改动）**
+- [x] **Step 3: 改 webRoot（后端唯一改动）**
 
 `src/index.ts:62`：
 
@@ -123,7 +127,7 @@ git status --short
 
 （dev 从 `src/` 解析、部署从 `dist/` 解析，都落到同一个 `web/public`，沿用现有机制。）
 
-- [ ] **Step 4: 同步静态资源测试的路径**
+- [x] **Step 4: 同步静态资源测试的路径**
 
 `test/component/static.test.ts:10`：
 
@@ -131,7 +135,7 @@ git status --short
   const webRoot = join(dirname(fileURLToPath(import.meta.url)), '../../web/public');
 ```
 
-- [ ] **Step 5: 跑测试与类型检查**
+- [x] **Step 5: 跑测试与类型检查**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run
@@ -140,7 +144,7 @@ git status --short
 
 预期：全部通过（含 `serves index.html at / (C4)`），tsc 无输出。
 
-- [ ] **Step 6: 浏览器验证页面未变**
+- [x] **Step 6: 浏览器验证页面未变**
 
 前台启动 dev 实例：
 
@@ -150,7 +154,7 @@ git status --short
 
 打开 `http://127.0.0.1:8788`，确认：登录后侧栏、信使会话、样式、图标全部正常（说明 `/style.css` 与 `/app.js` 仍被正确服务）。然后 Ctrl-C 停止。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add .gitignore src/index.ts test/component/static.test.ts web/
@@ -181,7 +185,7 @@ EOF
   - `store.ts`：`interface Store<S> { getState(): S; update(reducer: (s: S) => S): void; subscribe<T>(selector: (s: S) => T, cb: (v: T) => void): () => void }`、`function createStore<S>(initial: S): Store<S>`
   - `state.ts`：`type StreamRef = { kind: 'messenger' } | { kind: 'session'; id: string }`、`const MESSENGER: StreamRef`、`type Auth`、`type Conn`、`interface AppState`、`const initialState: AppState`；reducer 工厂 `sessionsReplaced(list)` / `sessionUpserted(x)` / `sessionRemoved(id)` / `streamSelected(ref)` / `streamCleared()` / `connChanged(c)` / `pendingSet(list)` / `agentEnabledSet(b)` / `authProbed(ok)` / `unauthorized()` / `loginRejected()`（均返回 `(s: AppState) => AppState`）；selector `fleetCounts(s)` / `sessionOf(s, id)` / `statusLabel(x)` / `vitalOf(x)` / `tagOf(x)` / `isCurrent(s, ref)`
 
-- [ ] **Step 1: 建 `tsconfig.web.json`**
+- [x] **Step 1: 建 `tsconfig.web.json`**
 
 ```json
 {
@@ -202,7 +206,7 @@ EOF
 
 `types: []` 排除 `@types/node`：前端只该看见 DOM（顺带让 `setInterval` 返回 `number` 而不是 `NodeJS.Timeout`）。`verbatimModuleSyntax` 强制跨到 `src/domain` 的导入写成 `import type`。
 
-- [ ] **Step 2: 写 `web/src/core/store.ts`**
+- [x] **Step 2: 写 `web/src/core/store.ts`**
 
 ```ts
 // 约 40 行的通用可观察存储，不含任何业务。
@@ -254,7 +258,7 @@ export function createStore<S>(initial: S): Store<S> {
 }
 ```
 
-- [ ] **Step 3: 写 `test/unit/web-store.test.ts`**
+- [x] **Step 3: 写 `test/unit/web-store.test.ts`**
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -309,7 +313,7 @@ describe('createStore', () => {
 });
 ```
 
-- [ ] **Step 4: 跑 store 单测，确认通过**
+- [x] **Step 4: 跑 store 单测，确认通过**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run test/unit/web-store.test.ts
@@ -317,7 +321,7 @@ describe('createStore', () => {
 
 预期：5 passed。（先写实现再写测试是因为 `createStore` 是纯基础设施；下面的 state/timeline 都按「测试先失败」走。）
 
-- [ ] **Step 5: 写 `test/unit/web-state.test.ts`（此时应当失败）**
+- [x] **Step 5: 写 `test/unit/web-state.test.ts`（此时应当失败）**
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -434,7 +438,7 @@ describe('selectors', () => {
 });
 ```
 
-- [ ] **Step 6: 运行确认失败**
+- [x] **Step 6: 运行确认失败**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run test/unit/web-state.test.ts
@@ -442,7 +446,7 @@ describe('selectors', () => {
 
 预期：FAIL，`Failed to load .../web/src/core/state`（文件还不存在）。
 
-- [ ] **Step 7: 写 `web/src/core/state.ts`**
+- [x] **Step 7: 写 `web/src/core/state.ts`**
 
 ```ts
 import type { PendingAction, SessionSummary } from '../../../src/domain/types';
@@ -531,7 +535,7 @@ export const isCurrent = (s: AppState, ref: StreamRef): boolean => {
 };
 ```
 
-- [ ] **Step 8: 运行确认通过**
+- [x] **Step 8: 运行确认通过**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run test/unit/web-state.test.ts
@@ -539,7 +543,7 @@ export const isCurrent = (s: AppState, ref: StreamRef): boolean => {
 
 预期：全部 passed。
 
-- [ ] **Step 9: 接上前端类型检查脚本**
+- [x] **Step 9: 接上前端类型检查脚本**
 
 `package.json` 的 `scripts` 里把 `typecheck` 改为：
 
@@ -556,7 +560,7 @@ export const isCurrent = (s: AppState, ref: StreamRef): boolean => {
 
 预期：两条均无输出。若前端那条报 `Cannot find module '../../../src/domain/types'`，检查是否漏了 `import type`。
 
-- [ ] **Step 10: 提交**
+- [x] **Step 10: 提交**
 
 ```bash
 git add tsconfig.web.json package.json web/src/core test/unit/web-store.test.ts test/unit/web-state.test.ts
@@ -587,7 +591,7 @@ EOF
   - `interface Timeline { reset(events); ingest(events); accept(event); earlier(); noteLocal(text) }`
   - `function createTimeline(): Timeline`
 
-- [ ] **Step 1: 写 `test/unit/web-timeline.test.ts`（此时应当失败）**
+- [x] **Step 1: 写 `test/unit/web-timeline.test.ts`（此时应当失败）**
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -720,7 +724,7 @@ describe('timeline: 乐观气泡回收', () => {
 });
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run test/unit/web-timeline.test.ts
@@ -728,7 +732,7 @@ describe('timeline: 乐观气泡回收', () => {
 
 预期：FAIL，`Failed to load .../web/src/transcript/timeline`（文件还不存在）。
 
-- [ ] **Step 3: 写 `web/src/transcript/timeline.ts`**
+- [x] **Step 3: 写 `web/src/transcript/timeline.ts`**
 
 ```ts
 import type { TranscriptEvent } from '../../../src/domain/types';
@@ -816,7 +820,7 @@ export function createTimeline(): Timeline {
 }
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run test/unit/web-timeline.test.ts
@@ -824,7 +828,7 @@ export function createTimeline(): Timeline {
 
 预期：全部 passed（11 个）。
 
-- [ ] **Step 5: 前端类型检查**
+- [x] **Step 5: 前端类型检查**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json
@@ -832,7 +836,7 @@ export function createTimeline(): Timeline {
 
 预期：无输出。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add web/src/transcript test/unit/web-timeline.test.ts
@@ -863,7 +867,7 @@ EOF
   - `api.ts`：`class ApiError extends Error { status; code }`、`errText(e, fallback)`、`interface DeviceInfo`、`type AgentResult`、`interface Api`、`createApi(onUnauthorized: () => void): Api`
   - `sse.ts`：`type StatusPayload`、`interface StreamHandlers`、`connectStream(h: StreamHandlers): () => void`
 
-- [ ] **Step 1: 写 `web/src/core/api.ts`**
+- [x] **Step 1: 写 `web/src/core/api.ts`**
 
 ```ts
 import type { InteractivePrompt } from '../../../src/domain/interactive-prompt';
@@ -973,7 +977,7 @@ export function createApi(onUnauthorized: () => void): Api {
 `202` / `201` 都落在 `r.ok`，因此旧代码里 `if (r.status === 202)` 与 `if (r.ok)` 的区别在这里统一为
 「不抛就算成功」。
 
-- [ ] **Step 2: 写 `web/src/core/sse.ts`**
+- [x] **Step 2: 写 `web/src/core/sse.ts`**
 
 ```ts
 import type { PlaneEvent, SessionSummary, TranscriptEvent } from '../../../src/domain/types';
@@ -1003,7 +1007,7 @@ export function connectStream(h: StreamHandlers): () => void {
 }
 ```
 
-- [ ] **Step 3: 前端类型检查**
+- [x] **Step 3: 前端类型检查**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json
@@ -1011,7 +1015,7 @@ export function connectStream(h: StreamHandlers): () => void {
 
 预期：无输出。若报 `Property 'data' does not exist on type 'Event'`，是漏了 `as MessageEvent`。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add web/src/core/api.ts web/src/core/sse.ts
@@ -1058,7 +1062,7 @@ jump、composer、设备弹窗），JS 只接管其中的动态子树；只有**
   - `prompt-box.ts`：`promptBox(p, onKeys): HTMLElement`
   - `composer.ts`：`mountComposer(onSend: (text: string) => void): { setPlaceholder(text: string): void }`
 
-- [ ] **Step 1: 写 `web/src/ui/dom.ts`**
+- [x] **Step 1: 写 `web/src/ui/dom.ts`**
 
 ```ts
 export interface ElProps {
@@ -1099,7 +1103,7 @@ export const show = (node: HTMLElement, display = 'block'): void => { node.style
 export const hide = (node: HTMLElement): void => { node.style.display = 'none'; };
 ```
 
-- [ ] **Step 2: 写 `web/src/ui/toast.ts`**
+- [x] **Step 2: 写 `web/src/ui/toast.ts`**
 
 ```ts
 import { $ } from './dom';
@@ -1117,7 +1121,7 @@ export function toast(msg: string): void {
 
 （`tsconfig.web.json` 的 `types: []` 让 `setTimeout` 返回 DOM 的 `number`，不是 `NodeJS.Timeout`。）
 
-- [ ] **Step 3: 写 `web/src/ui/dialog.ts`**
+- [x] **Step 3: 写 `web/src/ui/dialog.ts`**
 
 ```ts
 import { el } from './dom';
@@ -1179,7 +1183,7 @@ export function promptDialog(o: { title: string }): Promise<string | null> {
 }
 ```
 
-- [ ] **Step 4: 补 dialog 样式**
+- [x] **Step 4: 补 dialog 样式**
 
 在 `web/public/style.css` 的 `/* ---------- Responsive ---------- */` 注释**之前**插入：
 
@@ -1190,7 +1194,7 @@ export function promptDialog(o: { title: string }): Promise<string | null> {
 .modal__input { width: 100%; margin-bottom: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; color: var(--ink); font-family: var(--font-mono); font-size: 13px; }
 ```
 
-- [ ] **Step 5: 写 `web/src/components/stream-card.ts` 与 `message-node.ts`**
+- [x] **Step 5: 写 `web/src/components/stream-card.ts` 与 `message-node.ts`**
 
 ```ts
 // web/src/components/stream-card.ts
@@ -1266,7 +1270,7 @@ export function messageNodes(e: TranscriptEvent): HTMLElement[] {
 }
 ```
 
-- [ ] **Step 6: 写 `confirm-box.ts`、`prompt-box.ts`、`composer.ts`**
+- [x] **Step 6: 写 `confirm-box.ts`、`prompt-box.ts`、`composer.ts`**
 
 ```ts
 // web/src/components/confirm-box.ts
@@ -1346,7 +1350,7 @@ export function mountComposer(onSend: (text: string) => void): { setPlaceholder(
 }
 ```
 
-- [ ] **Step 7: 前端类型检查**
+- [x] **Step 7: 前端类型检查**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json
@@ -1354,7 +1358,7 @@ export function mountComposer(onSend: (text: string) => void): { setPlaceholder(
 
 预期：无输出。（这些模块此时还没有调用者 —— `main.ts` 在 Task 6 出现；tsc 仍会检查它们，浏览器仍跑旧 `app.js`，页面不变。）
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add web/src/ui web/src/components web/public/style.css
@@ -1392,7 +1396,7 @@ EOF
   - `mountConsole(store, api, refresh): { onMessage(sessionId: string, event: TranscriptEvent): void }`
   - `mountDevices(store, api): { open(): Promise<void> }`
 
-- [ ] **Step 1: 写 `web/src/views/login.ts`**
+- [x] **Step 1: 写 `web/src/views/login.ts`**
 
 ```ts
 import type { Api } from '../core/api';
@@ -1429,7 +1433,7 @@ export function mountLogin(store: Store<AppState>, api: Api): void {
 }
 ```
 
-- [ ] **Step 2: 写 `web/src/views/topbar.ts`**
+- [x] **Step 2: 写 `web/src/views/topbar.ts`**
 
 ```ts
 import type { AppState } from '../core/state';
@@ -1458,7 +1462,7 @@ export function mountTopbar(store: Store<AppState>, onOpenDevices: () => void): 
 }
 ```
 
-- [ ] **Step 3: 写 `web/src/views/rail.ts`**
+- [x] **Step 3: 写 `web/src/views/rail.ts`**
 
 ```ts
 import type { Api } from '../core/api';
@@ -1519,7 +1523,7 @@ export function mountRail(store: Store<AppState>, api: Api, refresh: () => Promi
 }
 ```
 
-- [ ] **Step 4: 写 `web/src/views/transcript-view.ts`**
+- [x] **Step 4: 写 `web/src/views/transcript-view.ts`**
 
 ```ts
 import type { TranscriptEvent } from '../../../src/domain/types';
@@ -1625,7 +1629,7 @@ export function mountTranscript(): TranscriptView {
 }
 ```
 
-- [ ] **Step 5: 写 `web/src/views/console-view.ts`**
+- [x] **Step 5: 写 `web/src/views/console-view.ts`**
 
 ```ts
 import type { InteractivePrompt } from '../../../src/domain/interactive-prompt';
@@ -1879,7 +1883,7 @@ export function mountConsole(
 定时器回调里不再重复判断 `isCurrent`：`openStream` / `closeConsole` 一定先 `stopTimers()`，
 不存在过期定时器（今天那两处 `if (state.current && …)` 是防御同一件事）。
 
-- [ ] **Step 6: 写 `web/src/views/devices.ts`**
+- [x] **Step 6: 写 `web/src/views/devices.ts`**
 
 ```ts
 import type { Api, DeviceInfo } from '../core/api';
@@ -1946,7 +1950,7 @@ export function mountDevices(store: Store<AppState>, api: Api): { open(): Promis
 }
 ```
 
-- [ ] **Step 7: 写 `web/src/main.ts`（组合根）**
+- [x] **Step 7: 写 `web/src/main.ts`（组合根）**
 
 ```ts
 import { createApi } from './core/api';
@@ -1998,7 +2002,7 @@ async function boot(): Promise<void> {
 void boot();
 ```
 
-- [ ] **Step 8: 改 `web/public/index.html`**
+- [x] **Step 8: 改 `web/public/index.html`**
 
 把两块条件渲染的面板换成空 slot（第 68~82 行整段替换）：
 
@@ -2016,7 +2020,7 @@ void boot();
 其余一律不动（`#confirmBox` / `#confirmList` / `#confirmYes` / `#confirmNo` / `#promptBox` /
 `#promptQuestion` / `#promptOptions` / `#promptKeys` 这些 id 从此不再被引用）。
 
-- [ ] **Step 9: 装 esbuild、接构建脚本、忽略产物、删除旧 `app.js`**
+- [x] **Step 9: 装 esbuild、接构建脚本、忽略产物、删除旧 `app.js`**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node /Users/l/.nvm/versions/node/v24.18.0/lib/node_modules/npm/bin/npm-cli.js install -D esbuild
@@ -2042,7 +2046,7 @@ web/public/app.js.map
 git rm web/public/app.js
 ```
 
-- [ ] **Step 10: 构建**
+- [x] **Step 10: 构建**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json
@@ -2051,7 +2055,7 @@ git rm web/public/app.js
 
 预期：tsc 无输出；esbuild 打印一行产物大小（数十 KB）。`git status` 里 `web/public/app.js` 不出现（已忽略）。
 
-- [ ] **Step 11: 浏览器验证（关键路径）**
+- [x] **Step 11: 浏览器验证（关键路径）**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/tsx/dist/cli.mjs src/cli.ts serve
@@ -2075,7 +2079,7 @@ git rm web/public/app.js
     - 「退出登录」→ 回到登录卡；**刷新页面仍停在登录卡**（旧版会直接又登录进去），且该设备已从设备列表移除。
       验完需要重新用 `cli.ts token` 取令牌登录。
 
-- [ ] **Step 12: 提交**
+- [x] **Step 12: 提交**
 
 ```bash
 git add -A web package.json package-lock.json .gitignore
@@ -2105,7 +2109,7 @@ EOF
   `build` / `build:web` / `typecheck` 三个 npm 脚本、`test/unit/web-{store,state,timeline}.test.ts`）
 - Produces：无（终点 Task）
 
-- [ ] **Step 1: 确认开发实例已停，端口干净**
+- [x] **Step 1: 确认开发实例已停，端口干净**
 
 ```bash
 lsof -ti tcp:8788
@@ -2114,7 +2118,7 @@ lsof -ti tcp:8788
 预期：**无输出**。若有 pid，说明上一个 Task 的 `serve` 没停：`kill <pid>` 后重跑本步。
 （开发实例与部署实例共享 `~/.lifestream` 与 tmux socket，不能同时长跑。）
 
-- [ ] **Step 2: 两个 tsc + 全量单测**
+- [x] **Step 2: 两个 tsc + 全量单测**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/typescript/bin/tsc --noEmit
@@ -2125,7 +2129,7 @@ lsof -ti tcp:8788
 预期：两个 tsc 均无输出；vitest 全绿，且末尾统计里的文件数比重构前多 3
 （`web-store` / `web-state` / `web-timeline`）。任一红灯都不许进入下一步。
 
-- [ ] **Step 3: 从零干净构建**
+- [x] **Step 3: 从零干净构建**
 
 ```bash
 rm -f web/public/app.js web/public/app.js.map
@@ -2139,7 +2143,7 @@ git status --short
 **不出现** `web/public/app.js` 与 `.map`（Task 6 已忽略），也不出现 `dist/`。
 这一步证明「产物被 gitignore 后仍能一条命令重建」——部署流程依赖它。
 
-- [ ] **Step 4: 结构约束体检（设计 §5 的两条硬规则）**
+- [x] **Step 4: 结构约束体检（设计 §5 的两条硬规则）**
 
 四条命令，**每条都必须无输出**：
 
@@ -2154,7 +2158,7 @@ grep -rn "innerHTML\|[^.a-zA-Z]confirm(\|[^.a-zA-Z]prompt(" web/src/  # 无字�
 （`transcript-view` 独占消息流 DOM，不订阅 store）。第 4 条中 `confirmDialog` / `promptDialog`
 带前缀，不会被 `[^.a-zA-Z]confirm(` 命中。
 
-- [ ] **Step 5: 文案零丢失核对（「重构前后表现一致」的机械化验收）**
+- [x] **Step 5: 文案零丢失核对（「重构前后表现一致」的机械化验收）**
 
 把重构前 `app.js` 里所有含中文的单引号字面量抽出来，逐条在打包产物里找：
 
@@ -2170,7 +2174,7 @@ while IFS= read -r s; do t=${s#\'}; t=${t%\'}; \
 预期：`MISSING` 行只允许是「行为差异清单」里已登记的那几条（如登录卡首屏提示相关），
 其余每一条文案都必须在产物中命中。出现未登记的 `MISSING` 就是回归，回到对应 Task 补回原文案。
 
-- [ ] **Step 6: 起开发实例，取登录令牌**
+- [x] **Step 6: 起开发实例，取登录令牌**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/tsx/dist/cli.mjs src/cli.ts token
@@ -2180,7 +2184,7 @@ while IFS= read -r s; do t=${s#\'}; t=${t%\'}; \
 第一条打印令牌（记下来，下一步要填）；第二条前台占用终端，用后台方式跑或另开一个 shell。
 预期日志含 `listening` 与 `8788`。
 
-- [ ] **Step 7: Playwright 走关键路径**
+- [x] **Step 7: Playwright 走关键路径**
 
 依次调用（每步的预期都要真的核对，不是走过场）：
 
@@ -2198,7 +2202,7 @@ while IFS= read -r s; do t=${s#\'}; t=${t%\'}; \
 
 任一步不符预期即停下修复，不要继续往部署走。
 
-- [ ] **Step 8: 停开发实例**
+- [x] **Step 8: 停开发实例**
 
 ```bash
 lsof -ti tcp:8788 | xargs -r kill
@@ -2207,7 +2211,7 @@ lsof -ti tcp:8788
 
 预期：第二条无输出。**必须停掉**——部署实例马上要接管同一份 `~/.lifestream` 与 tmux socket。
 
-- [ ] **Step 9: 部署（先征求用户同意）**
+- [x] **Step 9: 部署（先征求用户同意）**
 
 部署会 reload 正在服务的守护进程（8787），属于影响运行中系统的动作：**先向用户确认再执行**。
 确认后：
@@ -2228,7 +2232,7 @@ ls -l web/public/app.js
 - `reload` 打印「已通知 daemon(pid=…) 优雅重启 serve。」。若报 daemon 未运行，说明部署实例本来就没在跑，
   按原有方式 `node dist/cli.js daemon` 起来。
 
-- [ ] **Step 10: 部署实例冒烟**
+- [x] **Step 10: 部署实例冒烟**
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8787/
@@ -2239,7 +2243,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8787/app.js
 `http://127.0.0.1:8787`，登录后确认侧栏与信使流正常——部署实例上只需这一遍粗查，
 细的路径已在 Step 7 覆盖。
 
-- [ ] **Step 11: 收尾提交**
+- [x] **Step 11: 收尾提交**
 
 把设计文档的状态改为已实施（`docs/superpowers/specs/2026-07-29-web-frontend-refactor-design.md:3`）：
 
