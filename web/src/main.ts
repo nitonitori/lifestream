@@ -1,3 +1,4 @@
+import { createSessionCommands } from './commands/session';
 import { createApi } from './core/api';
 import {
   MESSENGER, agentEnabledSet, authProbed, connChanged, initialState,
@@ -19,11 +20,13 @@ const refresh = async (): Promise<void> => {
   catch { /* 401 已由 api 上报；其它失败等下一次 SSE 快照 */ }
 };
 
+const cmds = createSessionCommands(store, api, refresh);
+
 mountLogin(store, api);
 const devices = mountDevices(store, api);
 mountTopbar(store, () => void devices.open());
-mountRail(store, api, refresh);
-const console_ = mountConsole(store, api, refresh);
+mountRail(store, cmds);
+const console_ = mountConsole(store, api, cmds);
 
 async function boot(): Promise<void> {
   let enabled = false;

@@ -1,6 +1,6 @@
 import type { TranscriptEvent } from '../../../src/domain/types';
 import { bubble, messageNodes } from '../components/message-node';
-import { createTimeline } from '../transcript/timeline';
+import { createTimeline } from './timeline';
 import { $, clear, el } from '../ui/dom';
 
 export interface TranscriptView {

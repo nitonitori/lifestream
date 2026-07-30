@@ -1,23 +1,14 @@
-import type { Api } from '../core/api';
+import type { SessionCommands } from '../commands/session';
 import type { AppState, StreamRef } from '../core/state';
 import type { Store } from '../core/store';
-import { errText } from '../core/api';
 import { MESSENGER, isCurrent, streamSelected, tagOf, vitalOf } from '../core/state';
 import { streamCard } from '../components/stream-card';
 import { $, clear, el } from '../ui/dom';
-import { promptDialog } from '../ui/dialog';
-import { toast } from '../ui/toast';
 
-export function mountRail(store: Store<AppState>, api: Api, refresh: () => Promise<void>): void {
+export function mountRail(store: Store<AppState>, cmds: SessionCommands): void {
   const wrap = $('streams');
 
-  const newSession = async () => {
-    const cwd = await promptDialog({ title: '新会话工作目录（cwd）' });
-    if (!cwd) return;
-    try { await api.createSession(cwd); toast('已创建'); await refresh(); }
-    catch (e) { toast(errText(e, '创建失败')); }
-  };
-  $('newBtn').onclick = () => void newSession();
+  $('newBtn').onclick = () => void cmds.create();
 
   const render = () => {
     const s = store.getState();

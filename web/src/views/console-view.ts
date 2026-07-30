@@ -1,18 +1,16 @@
 import type { InteractivePrompt } from '../../../src/domain/interactive-prompt';
 import type { TranscriptEvent } from '../../../src/domain/types';
+import type { SessionCommands } from '../commands/session';
 import type { AgentResult, Api } from '../core/api';
 import type { AppState, StreamRef } from '../core/state';
 import type { Store } from '../core/store';
 import { errText } from '../core/api';
-import {
-  isCurrent, pendingSet, sessionOf, sessionRemoved, statusLabel, streamCleared,
-} from '../core/state';
+import { isCurrent, pendingSet, sessionOf, statusLabel } from '../core/state';
 import { mountComposer } from '../components/composer';
 import { confirmBox } from '../components/confirm-box';
 import { promptBox } from '../components/prompt-box';
-import { mountTranscript } from './transcript-view';
+import { mountTranscript } from '../transcript/view';
 import { $, clear, el, hide, show } from '../ui/dom';
-import { confirmDialog } from '../ui/dialog';
 import { toast } from '../ui/toast';
 
 const MESSENGER_POLL_MS = 5000;
@@ -21,7 +19,7 @@ const PROMPT_POLL_MS = 3000;
 export function mountConsole(
   store: Store<AppState>,
   api: Api,
-  refresh: () => Promise<void>,
+  cmds: SessionCommands,
 ): { onMessage(sessionId: string, event: TranscriptEvent): void } {
   const app = $('app');
   const placeholder = $('placeholder');
@@ -86,12 +84,12 @@ export function mountConsole(
       composer.setPlaceholder(x?.controllable ? '发送消息到该会话…' : '该会话未托管，先接管才能发送');
       if (x && !x.controllable && x.live) {
         cvActions.appendChild(el('button', {
-          class: 'btn btn--ghost', text: '接管', onclick: () => void adopt(ref.id),
+          class: 'btn btn--ghost', text: '接管', onclick: () => void cmds.adopt(ref.id),
         }));
       }
       if (x?.controllable) {
         cvActions.appendChild(el('button', {
-          class: 'btn btn--ghost', text: '结束会话', onclick: () => void archive(ref.id),
+          class: 'btn btn--ghost', text: '结束会话', onclick: () => void cmds.archive(ref.id),
         }));
       }
     }
@@ -141,39 +139,6 @@ export function mountConsole(
   const loadPending = async () => {
     try { store.update(pendingSet(await api.agentPending())); }
     catch { /* 与今天一致：拉取失败保持现状 */ }
-  };
-
-  const adopt = async (id: string) => {
-    const x = sessionOf(store.getState(), id);
-    const label = x?.name || id.slice(0, 8);
-    let force = false;
-    if (x?.live) {
-      const ok = await confirmDialog({
-        title: '接管会话',
-        body: `会话「${label}」仍在运行。接管会先结束其原进程，再在受控窗口中恢复（保留完整上下文）。是否继续？`,
-        okText: '继续接管',
-      });
-      if (!ok) return;
-      force = true;
-    }
-    try { await api.adoptSession(id, force); toast('已接管'); await refresh(); }
-    catch (e) { toast(errText(e, '接管失败')); }
-  };
-
-  const archive = async (id: string) => {
-    const x = sessionOf(store.getState(), id);
-    const label = x?.name || id.slice(0, 8);
-    const ok = await confirmDialog({
-      title: '结束会话',
-      body: `结束会话「${label}」？这会关闭其 tmux 窗口并结束对应的 Claude 进程。`,
-      okText: '结束会话', danger: true,
-    });
-    if (!ok) return;
-    try { await api.archiveSession(id); } catch (e) { toast(errText(e, '结束失败')); return; }
-    toast('已结束会话');
-    store.update(sessionRemoved(id));
-    if (isCurrent(store.getState(), { kind: 'session', id })) store.update(streamCleared());
-    await refresh();
   };
 
   // ---------- 交互选择器 ----------
