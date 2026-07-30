@@ -39,6 +39,15 @@ describe('createStore', () => {
     expect(calls).toBe(2);
   });
 
+  it('从空对象换成 Map 也算变化（原型守卫两边都要判）', () => {
+    const store = createStore<{ sessions: object }>({ sessions: {} });
+    let calls = 0;
+    store.subscribe(s => s.sessions, () => { calls++; });
+    expect(calls).toBe(1);
+    store.update(s => ({ ...s, sessions: new Map() }));
+    expect(calls).toBe(2);
+  });
+
   it('reducer 返回同一引用时不通知（连 selector 都不再调用）', () => {
     const store = createStore({ n: 1 });
     let selects = 0;

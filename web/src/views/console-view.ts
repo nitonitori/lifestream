@@ -35,10 +35,10 @@ export function mountConsole(
   const composer = mountComposer(text => void send(text));
 
   let messengerTimer: number | undefined;
+  // promptTimer 只由下方最后一条订阅读写 —— 别在其它地方清它，否则又要靠订阅注册顺序才正确。
   let promptTimer: number | undefined;
-  const stopTimers = () => {
+  const stopMessengerPoll = () => {
     clearInterval(messengerTimer); messengerTimer = undefined;
-    clearInterval(promptTimer); promptTimer = undefined;
   };
 
   $('backBtn').onclick = () => { app.classList.remove('show-console'); };
@@ -190,18 +190,22 @@ export function mountConsole(
     try { p = await api.sessionPrompt(id); }
     catch { if (isCurrent(store.getState(), { kind: 'session', id })) clear(promptSlot); return; }
     // 期间切走了就别动 DOM —— 否则会抹掉新会话刚渲染的面板。
-    if (!isCurrent(store.getState(), { kind: 'session', id })) return;
+    // 也要复查 controllable：翻成不可控时轮询已被订阅停掉，此刻贴回面板就再没人来清它。
+    const s = store.getState();
+    if (!isCurrent(s, { kind: 'session', id }) || !sessionOf(s, id)?.controllable) return;
     clear(promptSlot);
     if (p && p.options.length > 0) promptSlot.appendChild(promptBox(p, keys => void sendKeys(id, keys)));
   };
 
   // ---------- 生命周期 ----------
   const openStream = async (ref: StreamRef) => {
-    stopTimers();
+    stopMessengerPoll();
+    // 留着旧 pending 的话，下次切回信使流会先画出一个可点的陈旧「待确认操作」面板，
+    // 一直滞留到 loadPending() 拉回新值 —— 而那要等整个转录请求先跑完。
+    if (ref.kind !== 'messenger') store.update(pendingSet([]));
     hide(placeholder);
     show(consoleView, 'flex');
     app.classList.add('show-console');
-    clear(promptSlot);
 
     await reload(ref);
     if (!isCurrent(store.getState(), ref)) return;    // 期间切走了：不要再装定时器
@@ -215,8 +219,7 @@ export function mountConsole(
   };
 
   const closeConsole = () => {
-    stopTimers();
-    clear(promptSlot);
+    stopMessengerPoll();
     hide(consoleView);
     show(placeholder, 'grid');
     app.classList.remove('show-console');
@@ -254,7 +257,6 @@ export function mountConsole(
 
   // 交互选择器轮询：由「当前流是否为可控会话」驱动，而不是只在切流时装一次 ——
   // 否则在已打开的会话上点「接管」后，要等到下次切流才会开始轮询。
-  // 必须注册在上面那条订阅之后，才能跑在 openStream 同步段的 stopTimers() 之后。
   store.subscribe(
     s => (s.current?.kind === 'session' && s.sessions.get(s.current.id)?.controllable ? s.current.id : null),
     id => {

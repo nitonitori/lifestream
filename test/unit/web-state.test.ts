@@ -18,6 +18,12 @@ describe('reducers', () => {
     expect([...s1.sessions.keys()]).toEqual(['a', 'b']);
   });
 
+  it('sessionsReplaced 丢弃不在新列表里的旧条目', () => {
+    const s1 = sessionsReplaced([S({ sessionId: 'a' }), S({ sessionId: 'b' })])(initialState);
+    const s2 = sessionsReplaced([S({ sessionId: 'b' })])(s1);
+    expect([...s2.sessions.keys()]).toEqual(['b']);
+  });
+
   it('sessionUpserted 覆盖同 id 且不原地改', () => {
     const s1 = sessionsReplaced([S({ sessionId: 'a', status: 'idle' })])(initialState);
     const s2 = sessionUpserted(S({ sessionId: 'a', status: 'busy' }))(s1);
@@ -53,6 +59,16 @@ describe('reducers', () => {
     expect(streamCleared()(s1).current).toBeNull();
   });
 
+  // 判等即返回原 state 是「点当前已选中的卡片不重载」在 rail/头部也成立的前提：
+  // 那两条订阅把 current 嵌在对象字面量里，换个 ref 对象就等于换整块 DOM。
+  it('streamSelected 重选同一条流返回同一个 state 引用', () => {
+    const one = streamSelected({ kind: 'session', id: 'a' })(initialState);
+    expect(streamSelected({ kind: 'session', id: 'a' })(one)).toBe(one);
+    expect(streamSelected({ kind: 'session', id: 'b' })(one)).not.toBe(one);
+    const m = streamSelected(MESSENGER)(initialState);
+    expect(streamSelected({ kind: 'messenger' })(m)).toBe(m);
+  });
+
   it('connChanged / pendingSet / agentEnabledSet', () => {
     expect(connChanged('down')(initialState).conn).toBe('down');
     expect(agentEnabledSet(true)(initialState).agentEnabled).toBe(true);
@@ -60,7 +76,7 @@ describe('reducers', () => {
     expect(pendingSet(p)(initialState).pending).toEqual(p);
   });
 
-  it('三种登录态提示逐字不同', () => {
+  it('三种登录态提示各不相同（首访为空）', () => {
     const out = authProbed(false)(initialState);
     expect(out.auth).toBe('out');
     expect(out.authNotice).toBe('');                       // 首次探测 401：不显示提示
@@ -89,6 +105,7 @@ describe('selectors', () => {
     expect(sessionOf(s, 'nope')).toBeUndefined();
   });
 
+  // 下面三个的期望值是从新实现转写的，只防「今后被改坏」；与旧 web/app.js 逐字一致由另一套字面量核对兜住。
   it('statusLabel', () => {
     expect(statusLabel(S({ sessionId: 'x', live: false }))).toBe('离线');
     expect(statusLabel(S({ sessionId: 'x', status: 'busy' }))).toBe('运行中');

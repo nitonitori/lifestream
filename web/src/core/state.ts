@@ -40,7 +40,10 @@ export const sessionRemoved = (id: string) => (s: AppState): AppState => {
   return { ...s, sessions };
 };
 
-export const streamSelected = (ref: StreamRef) => (s: AppState): AppState => ({ ...s, current: ref });
+// 判等即返回原 state：否则重选同一条流会写入一个新的 ref 对象，把 s.current 嵌进对象字面量的
+// 订阅（rail、头部）就因引用不同而整体重建 DOM —— 正落在用户光标下。
+export const streamSelected = (ref: StreamRef) => (s: AppState): AppState =>
+  isCurrent(s, ref) ? s : { ...s, current: ref };
 export const streamCleared = () => (s: AppState): AppState => ({ ...s, current: null });
 export const connChanged = (conn: Conn) => (s: AppState): AppState => ({ ...s, conn });
 export const pendingSet = (pending: PendingAction[]) => (s: AppState): AppState => ({ ...s, pending });

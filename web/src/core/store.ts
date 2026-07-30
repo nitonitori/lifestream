@@ -15,6 +15,7 @@ function same(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
   if (Object.getPrototypeOf(a) !== Object.prototype && !Array.isArray(a)) return false;
+  if (Object.getPrototypeOf(b) !== Object.prototype && !Array.isArray(b)) return false;
   const ka = Object.keys(a);
   const kb = Object.keys(b);
   if (ka.length !== kb.length) return false;
@@ -30,6 +31,7 @@ export function createStore<S>(initial: S): Store<S> {
       const next = reducer(state);
       if (next === state) return;
       state = next;
+      // 订阅回调里同步 dispatch 会重入这个循环：有条件的能靠已更新的 sub.last 收敛，无条件的即无限递归。
       for (const sub of subs) {
         const v = sub.select(state);
         if (same(v, sub.last)) continue;

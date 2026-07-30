@@ -81,7 +81,7 @@ export function createApi(onUnauthorized: () => void): Api {
 
   return {
     login: token => post<void>('/api/login', { token }, { silent401: true }),
-    logout: () => post<void>('/api/logout', {}),
+    logout: () => call<void>('/api/logout', { method: 'POST' }),
     agentEnabled: () => call<{ enabled: boolean }>('/api/agent/enabled', { silent401: true }),
     agentMessages: () => call<TranscriptEvent[]>('/api/agent/messages'),
     agentPending: () => call<PendingAction[]>('/api/agent/pending'),

@@ -1,7 +1,7 @@
 import type { TranscriptEvent } from '../../../src/domain/types';
 
-export const MAX_RENDER = 300;   // DOM 中最多渲染的消息数
-export const CHUNK = 200;        // 「载入更早」每次追加
+const MAX_RENDER = 300;          // DOM 中最多渲染的消息数
+const CHUNK = 200;               // 「载入更早」每次追加
 
 export interface Timeline {
   /** 首屏/切换会话：以全量事件重置，返回该渲染的窗口。 */

@@ -14,7 +14,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.web.json",
     "build": "tsc -p tsconfig.json && npm run build:web",
-    "build:web": "esbuild web/src/main.ts --bundle --format=esm --target=es2022 --minify --sourcemap --outfile=web/public/app.js",
+    "build:web": "esbuild web/src/main.ts --bundle --format=esm --target=es2022 --minify --charset=utf8 --sourcemap --outfile=web/public/app.js",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js"
   },
