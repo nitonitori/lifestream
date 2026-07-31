@@ -1241,8 +1241,10 @@ git commit -m "refactor(control): ControlPlane 改吃 AgentSource[]，命令行�
 >    （`attachment.generator.finished` 出现 55 次却无对应 `.started`；并发 hook 造出 29.2s 假空闲窗口）。
 > 2. **存活判定是三道闸**，不是「pid 活着」一道：run 名尾部 pid 是历史值（`logs/sessions` 只追加不清理），
 >    pid 复用会造出「幽灵活会话」—— 列表里删不掉（`archiveSession` 见 `isLive` 就拒），且 force 接管会
->    `killPid` 把无关进程 SIGTERM。三道闸 = 日志 mtime 晚于本次开机 + `kill(pid,0)` + `ps -o comm=` 的 basename
->    等于本 source 的 bin 的 basename。
+>    `killPid` 把无关进程 SIGTERM。三道闸 = 日志 mtime 晚于本次开机 + `kill(pid,0)` + **归属闸**
+>    （`ps -o lstart=,comm=`：comm 的 basename 等于本 source 的 bin 的 basename，且进程启动时刻 ≤ run 文件 birthtime）。
+>    归属闸比纯进程名核对多挡一种情形：闸 1 只挡跨开机的复用，**同一次开机内**被另一个 qodercli 复用的 pid
+>    前两道加纯名字核对会全部放过（实测真实环境 pid 26239 四天后又活了，已是另一个进程）。
 
 **Files:**
 - Create: `src/domain/segments.ts`
@@ -1360,15 +1362,16 @@ Expected: PASS（7 passed）。
 
 `test/unit/sources.test.ts` 追加：
 
-`import { execFileSync } from 'node:child_process';`，并把 `utimesSync` 加进本文件的 `node:fs` import。
+`import { execFileSync, spawn } from 'node:child_process';`，并把 `utimesSync` / `renameSync` 加进本文件的 `node:fs` import。
 
 ```ts
 import { QoderCliSource } from '../../src/adapters/sources/qoder-cli.js';
 
 describe('QoderCliSource', () => {
-  // 下面的用例拿本进程 pid 当「活 pid」，要过进程名核对就得把 bin 传成本进程在 ps 里的名字。
+  // 下面的用例拿本进程 pid 当「活 pid」，要过归属闸就得把 bin 传成本进程在 ps 里的名字。
   // 不能硬编码 'node'：ps -o comm= 给的是进程标题，而 vitest 的 worker 会把它改写成
-  // `node (vitest 1)`，硬编码会让本该 live 的用例被进程名闸挡掉。故运行时问一次 ps。
+  // `node (vitest 1)`，硬编码会让本该 live 的用例被归属闸挡掉。故运行时问一次 ps。
+  // 单列 comm 不截断，与 pidOwnsRun 里从 `lstart=,comm=` 末列取到的值一致。
   const selfBin = execFileSync('ps', ['-p', String(process.pid), '-o', 'comm='], { encoding: 'utf8' }).trim();
 
   // 返回写入的 run 文件路径，供「开机时间闸」的测试 backdate mtime。
@@ -1387,7 +1390,8 @@ describe('QoderCliSource', () => {
       .toEqual(['qodercli', '--session-id', 'sid', '--permission-mode', 'bypass_permissions']);
   });
 
-  // 传 selfBin 的几条会真的走通 ps 核对，因此顺带正向覆盖了进程名闸。
+  // 传 selfBin 的几条会真的走通 ps，且 vitest 进程启动于 seed 文件创建之前，
+  // 因此顺带正向覆盖了归属闸的两半（进程名匹配 + 启动早于 run 文件创建）。
   test('run 名 pid 活着才算 live，cwd 取自 segments、状态一律 unknown', async () => {
     const h = home();
     seed(h, 'alive', `2026-07-30T16-31-03-aaaa-p${process.pid}`, [
@@ -1435,6 +1439,22 @@ describe('QoderCliSource', () => {
     expect(live).toEqual([]);
   });
 
+  test('pid 活着、名字也对，但进程启动晚于 run 文件创建，不算 live（同开机内 pid 复用防护）', async () => {
+    const h = home();
+    // 先建 run 文件（占位 pid），等过 1s（ps lstart 精度是秒），再起子进程并把文件改名带上它的 pid。
+    // rename 保留 birthtime，于是「文件先创建、进程后启动」这个幽灵场景被精确复现。
+    const p = seed(h, 'ghost', '2026-07-30T16-31-03-gggg-p1', [
+      JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/x' } }),
+    ]);
+    await new Promise(r => setTimeout(r, 1100));
+    const child = spawn('/bin/sleep', ['60']);
+    try {
+      renameSync(p, p.replace('-p1.jsonl', `-p${child.pid}.jsonl`));
+      const live = await new QoderCliSource(h, 'sleep').readLiveSessions();
+      expect(live).toEqual([]);
+    } finally { child.kill(); }
+  });
+
   test('run 名没有 -p 后缀则跳过', async () => {
     const h = home();
     seed(h, 'nopid', '2026-07-30T16-31-03-eeee', [
@@ -1472,29 +1492,48 @@ Expected: FAIL —— `Cannot find module '../../src/adapters/sources/qoder-cli.
 - [ ] **Step 7: 写 `src/adapters/sources/qoder-cli.ts`**
 
 同时把 `src/adapters/sources/base.ts` 里 `CliSource` 构造的 `private readonly bin` 改成 `protected readonly bin`
-（`pidRunsBin` 要读它；`permissionMode` 保持 `private`）。
+（`pidOwnsRun` 要读它；`permissionMode` 保持 `private`）。
 
 ```ts
-import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { readFileSync, statSync, type Stats } from 'node:fs';
 import { uptime } from 'node:os';
 import { basename, join } from 'node:path';
+import { promisify } from 'node:util';
 import type { LiveSession } from '../../domain/types.js';
 import { parseSegments, pidFromRunName } from '../../domain/segments.js';
 import { CliSource, isPidAlive, safeReaddir } from './base.js';
 
+// ps 走异步：execFileSync 每次 fork 实测约 22ms，而 readLiveSessions 既跑 2s 轮询也在每个
+// listSessions() 的 HTTP 请求路径上，不该阻塞事件循环。
+const execFileAsync = promisify(execFile);
+
 export class QoderCliSource extends CliSource {
   readonly kernel = 'qodercli' as const;
 
-  // 第二道闸：pid 活着不代表它还是 qodercli —— 复用后可能是任意进程。
+  // 第三道闸：pid 活着、名字对，也未必是这个 run 的主人 —— 同一次开机内 pid 会被复用
+  //（实测真实环境四天内就复用过一次）。run 文件是该进程自己创建的，所以「进程启动时刻
+  // 早于 run 文件创建时刻」是精确判据：被复用的新进程必然启动于老 run 文件之后。
   // 逐个 pid 查而不批量：`ps -p a,b,c` 只要有一个 pid 越界就整批退出 1。
   // ps 本身失败时返回 false（宁可少报一个会话，也不能把无关进程当成会话去 kill）。
-  private pidRunsBin(pid: number): boolean {
+  private async pidOwnsRun(pid: number, runBirthMs: number): Promise<boolean> {
+    let out: string;
     try {
-      const comm = execFileSync('ps', ['-p', String(pid), '-o', 'comm='], { encoding: 'utf8', timeout: 2000 }).trim();
-      // ps 给出的形状不统一（node 是绝对路径、qodercli 是短名），按 basename 比。
-      return comm !== '' && basename(comm) === basename(this.bin);
+      // lstart 必须放前面：ps 只有最后一列不截断，comm 在前会被截到 16 字符。
+      // LC_ALL=C：默认 locale 下 lstart 输出中文（「五  7月/31 …」）无法解析。
+      // 路径写死 /bin/ps：launchd 下 PATH 被裁剪时 ps 解析失败会让所有 qodercli 会话静默消失。
+      const r = await execFileAsync('/bin/ps', ['-p', String(pid), '-o', 'lstart=,comm='],
+        { encoding: 'utf8', timeout: 2000, env: { ...process.env, LC_ALL: 'C' } });
+      out = r.stdout.trim();
     } catch { return false; }
+    // 形如 `Fri Jul 31 14:34:26 2026 /path/to/bin`：前 5 个 token 是 lstart，其余是 comm。
+    const tok = out.split(/\s+/).filter(Boolean);
+    if (tok.length < 6) return false;
+    const startMs = Date.parse(tok.slice(0, 5).join(' '));
+    // lstart 精度是秒且向下取整，故真实会话恒满足「启动 ≤ birthtime」，不需要容差。
+    if (Number.isNaN(startMs) || startMs > runBirthMs) return false;
+    // ps 给出的形状不统一（node 是绝对路径、qodercli 是短名），按 basename 比。
+    return basename(tok.slice(5).join(' ')) === basename(this.bin);
   }
 
   // qodercli 没有 Claude 那样的 sessions/<pid>.json 心跳文件，
@@ -1513,11 +1552,11 @@ export class QoderCliSource extends CliSource {
         const run = safeReaddir(segDir).filter(f => f.endsWith('.jsonl')).sort().at(-1);
         if (!run) continue;
         const runPath = join(segDir, run);
-        let mtimeMs: number;
-        try { mtimeMs = statSync(runPath).mtimeMs; } catch { continue; }
-        if (mtimeMs < bootMs) continue;
+        let st: Stats;
+        try { st = statSync(runPath); } catch { continue; }
+        if (st.mtimeMs < bootMs) continue;
         const pid = pidFromRunName(run);
-        if (pid === null || !isPidAlive(pid) || !this.pidRunsBin(pid)) continue;
+        if (pid === null || !isPidAlive(pid) || !(await this.pidOwnsRun(pid, st.birthtimeMs))) continue;
         let lines: string[];
         try { lines = readFileSync(runPath, 'utf8').split('\n').filter(Boolean); }
         catch { continue; }
@@ -1530,7 +1569,10 @@ export class QoderCliSource extends CliSource {
 }
 ```
 
-三道闸的顺序不能调整：`isPidAlive` 必须在 `pidRunsBin` 之前（`ps` 是子进程，且已死/越界的 pid 先挡掉才不浪费 spawn）。
+三道闸的顺序不能调整：`isPidAlive` 必须在 `pidOwnsRun` 之前（`ps` 是子进程，且已死/越界的 pid 先挡掉才不浪费 spawn）。
+
+`src/domain/segments.ts` 里取到 cwd 之后要 `break`：只需要第一条 `session.config.loaded`，而真实 run
+已有 49KB / 143 行且 2s 一轮，没必要每轮把整个文件逐行 `JSON.parse`（语义不变，原本就是「首条胜出」）。
 
 若 `LiveSession` 还有别的必填字段，按 `src/domain/types.ts` 补齐（参照 `session-discovery.ts` 里 `toLiveSession` 的返回值）。
 

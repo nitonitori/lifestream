@@ -77,9 +77,10 @@ describe('ClaudeSource', () => {
 });
 
 describe('QoderCliSource', () => {
-  // 下面的用例拿本进程 pid 当「活 pid」，要过进程名核对就得把 bin 传成本进程在 ps 里的名字。
+  // 下面的用例拿本进程 pid 当「活 pid」，要过归属闸就得把 bin 传成本进程在 ps 里的名字。
   // 不能硬编码 'node'：ps -o comm= 给的是进程标题，而 vitest 的 worker 会把它改写成
-  // `node (vitest 1)`，硬编码会让本该 live 的用例被进程名闸挡掉。故运行时问一次 ps。
+  // `node (vitest 1)`，硬编码会让本该 live 的用例被归属闸挡掉。故运行时问一次 ps。
+  // 单列 comm 不截断，与 pidOwnsRun 里从 `lstart=,comm=` 末列取到的值一致。
   const selfBin = execFileSync('ps', ['-p', String(process.pid), '-o', 'comm='], { encoding: 'utf8' }).trim();
 
   // 返回写入的 run 文件路径，供「开机时间闸」的测试 backdate mtime。
@@ -98,7 +99,8 @@ describe('QoderCliSource', () => {
       .toEqual(['qodercli', '--session-id', 'sid', '--permission-mode', 'bypass_permissions']);
   });
 
-  // 传 selfBin 的几条会真的走通 ps 核对，因此顺带正向覆盖了进程名闸。
+  // 传 selfBin 的几条会真的走通 ps，且 vitest 进程启动于 seed 文件创建之前，
+  // 因此顺带正向覆盖了归属闸的两半（进程名匹配 + 启动早于 run 文件创建）。
   test('run 名 pid 活着才算 live，cwd 取自 segments、状态一律 unknown', async () => {
     const h = home();
     seed(h, 'alive', `2026-07-30T16-31-03-aaaa-p${process.pid}`, [
