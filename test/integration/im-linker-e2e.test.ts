@@ -8,7 +8,7 @@ import { AgentConductor } from '../../src/im/conductor.js';
 import { ClaudeAgentRunner } from '../../src/adapters/agent-runner.js';
 import { ControlPlane } from '../../src/domain/control-plane.js';
 import { SystemClock } from '../../src/adapters/clock.js';
-import { FakeTmux, FakeClaudeHome, InMemoryManagedRegistry, InMemoryPendingStore } from '../fakes/index.js';
+import { FakeTmux, FakeSource, InMemoryManagedRegistry, InMemoryPendingStore } from '../fakes/index.js';
 
 const SENDER = 'sender-allowed';
 const DELAY_MS = 400;
@@ -34,7 +34,7 @@ function wire(commandPrefix = '/ai') {
   const pending = new InMemoryPendingStore();
   const clock = new SystemClock();
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeClaudeHome(), registry: new InMemoryManagedRegistry(),
+    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
     clock, claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'id-xxxxxxxx',
   });
   const agent = new ClaudeAgentRunner({ claudeBin, mcpConfigPath, stateDir });

@@ -1,7 +1,7 @@
 import { it, expect } from 'vitest';
 import { SseHub } from '../../src/server/sse.js';
 import { ControlPlane } from '../../src/domain/control-plane.js';
-import { FakeClock, FakeTmux, FakeClaudeHome, InMemoryManagedRegistry } from '../fakes/index.js';
+import { FakeClock, FakeTmux, FakeSource, InMemoryManagedRegistry } from '../fakes/index.js';
 import { wireSse } from '../../src/index.js';
 
 it('plane events broadcast over SSE (F1)', () => {
@@ -9,7 +9,7 @@ it('plane events broadcast over SSE (F1)', () => {
   const frames: string[] = [];
   sse.add({ write: (s: string) => frames.push(s) } as any);
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeClaudeHome(), registry: new InMemoryManagedRegistry(),
+    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
     clock: new FakeClock(), claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'x',
   });
   wireSse(plane, sse);
@@ -23,7 +23,7 @@ it('message events use message channel', () => {
   const frames: string[] = [];
   sse.add({ write: (s: string) => frames.push(s) } as any);
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeClaudeHome(), registry: new InMemoryManagedRegistry(),
+    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
     clock: new FakeClock(), claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'x',
   });
   wireSse(plane, sse);

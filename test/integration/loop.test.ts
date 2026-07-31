@@ -3,7 +3,7 @@ import { mkdtempSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Tmux } from '../../src/adapters/tmux.js';
-import { ClaudeHome } from '../../src/adapters/claude-home.js';
+import { ClaudeSource } from '../../src/adapters/sources/claude.js';
 import { parseTranscript } from '../../src/domain/transcript-parser.js';
 
 const tmux = new Tmux('ls-loop');
@@ -23,9 +23,9 @@ describe('tmux send-keys -> transcript loop (B2 acceptance)', () => {
     await tmux.sendText(NAME, 'hello-loop from lifestream');
     await new Promise(r => setTimeout(r, 1500));
 
-    const path = await new ClaudeHome(home).locateTranscript(id);
+    const path = await new ClaudeSource(home, 'claude').locateTranscript(id);
     expect(path).not.toBeNull();
-    const events = parseTranscript(await new ClaudeHome(home).readTranscript(path!));
+    const events = parseTranscript(await new ClaudeSource(home, 'claude').readTranscript(path!));
     expect(events.some(e => e.kind === 'user' && (e as any).text.includes('hello-loop from lifestream'))).toBe(true);
   }, 20000);
 });

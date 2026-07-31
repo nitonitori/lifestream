@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { loadConfig, type Config } from './config.js';
 import { ControlPlane } from './domain/control-plane.js';
-import { ClaudeHome } from './adapters/claude-home.js';
+import { ClaudeSource } from './adapters/sources/claude.js';
 import { Tmux } from './adapters/tmux.js';
 import { FileManagedRegistry } from './adapters/managed-registry.js';
 import { SystemClock } from './adapters/clock.js';
@@ -11,7 +11,8 @@ import { SystemClock } from './adapters/clock.js';
 export function buildPlane(cfg: Config): ControlPlane {
   return new ControlPlane({
     tmux: new Tmux(cfg.tmux.socket, cfg.tmux.bin),
-    home: new ClaudeHome(cfg.paths.claudeHome),
+    // bin / permissionMode 同时传给 source 与 Deps：Deps 上的两项 Task 3 才拆掉。
+    home: new ClaudeSource(cfg.paths.claudeHome, cfg.claude.bin, cfg.claude.sessionPermissionMode),
     registry: new FileManagedRegistry(join(cfg.paths.stateDir, 'managed.json')),
     clock: new SystemClock(),
     claudeBin: cfg.claude.bin,

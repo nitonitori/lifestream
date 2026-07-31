@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { buildHttp } from '../../src/server/http.js';
 import { SseHub } from '../../src/server/sse.js';
 import { ControlPlane } from '../../src/domain/control-plane.js';
-import { FakeClock, FakeTmux, FakeClaudeHome, InMemoryManagedRegistry, InMemoryDeviceStore } from '../fakes/index.js';
+import { FakeClock, FakeTmux, FakeSource, InMemoryManagedRegistry, InMemoryDeviceStore } from '../fakes/index.js';
 
 async function app() {
   const tmux = new FakeTmux();
   const plane = new ControlPlane({
-    tmux, home: new FakeClaudeHome(), registry: new InMemoryManagedRegistry(),
+    tmux, home: new FakeSource(), registry: new InMemoryManagedRegistry(),
     clock: new FakeClock(), claudeBin: 'claude', tmuxSocket: 's', newSessionId: () => 'id-1234abcd',
   });
   const fastify = await buildHttp({ plane, token: 'secret', sse: new SseHub(), devices: new InMemoryDeviceStore() });

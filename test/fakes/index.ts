@@ -1,8 +1,9 @@
 import type {
-  Clock, TmuxAdapter, TmuxSessionInfo, ClaudeHomeAdapter, ManagedRegistry, ManagedEntry,
+  Clock, TmuxAdapter, TmuxSessionInfo, ControllableSource, ManagedRegistry, ManagedEntry,
   PendingActionStore, ImAdapter, InboundMessage, AgentRunner, DeviceStore, Device,
 } from '../../src/ports/index.js';
-import type { LiveSession, PendingAction } from '../../src/domain/types.js';
+import type { CreateSessionOptions, Kernel, LiveSession, PendingAction } from '../../src/domain/types.js';
+import { flatSessionIdForPath } from '../../src/adapters/sources/base.js';
 
 export class FakeClock implements Clock {
   constructor(public t = 1000) {}
@@ -31,7 +32,13 @@ export class FakeTmux implements TmuxAdapter {
   async killSession(name: string) { this.sessions.delete(name); }
 }
 
-export class FakeClaudeHome implements ClaudeHomeAdapter {
+export class FakeSource implements ControllableSource {
+  constructor(
+    readonly kernel: Kernel = 'claude',
+    private readonly bin = 'claude',
+    private readonly permissionMode = 'bypassPermissions',
+  ) {}
+
   live: LiveSession[] = [];
   transcripts = new Map<string, string[]>(); // sessionId -> lines
   paths = new Map<string, string>();         // sessionId -> path
@@ -42,7 +49,24 @@ export class FakeClaudeHome implements ClaudeHomeAdapter {
     return [];
   }
   async readTranscriptFrom(path: string, _o: number) { return { lines: await this.readTranscript(path), offset: 0 }; }
-  watchProjects(_cb: (p: string) => void) { return () => {}; }
+
+  watched: ((changedPath: string) => void)[] = [];
+  watchProjects(cb: (changedPath: string) => void): () => void {
+    this.watched.push(cb);
+    return () => { this.watched = this.watched.filter(x => x !== cb); };
+  }
+  sessionIdForPath(p: string): string | null { return flatSessionIdForPath(p); }
+  launchCommand(sessionId: string, opts: CreateSessionOptions): string[] {
+    const cmd = [this.bin, '--session-id', sessionId];
+    if (opts.model) cmd.push('--model', opts.model);
+    const mode = opts.permissionMode ?? this.permissionMode;
+    if (mode) cmd.push('--permission-mode', mode);
+    if (opts.name) cmd.push('--name', opts.name);
+    return cmd;
+  }
+  resumeCommand(sessionId: string): string[] {
+    return [this.bin, '--resume', sessionId, '--permission-mode', this.permissionMode];
+  }
 }
 
 export class InMemoryManagedRegistry implements ManagedRegistry {

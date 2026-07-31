@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { ControlPlane } from '../../src/domain/control-plane.js';
-import { FakeClock, FakeTmux, FakeClaudeHome, InMemoryManagedRegistry } from '../fakes/index.js';
+import { FakeClock, FakeTmux, FakeSource, InMemoryManagedRegistry } from '../fakes/index.js';
 import { NotFoundError, NotControllableError, ConflictError } from '../../src/domain/errors.js';
 import { userLine } from '../fixtures/transcript-lines.js';
 
 function make() {
   const tmux = new FakeTmux();
-  const home = new FakeClaudeHome();
+  const home = new FakeSource();
   const registry = new InMemoryManagedRegistry();
   const clock = new FakeClock(5000);
   const killed: number[] = [];
@@ -41,12 +41,6 @@ describe('createSession (B2)', () => {
     expect(tmux.sessions.get(name)!.command).toEqual(['claude', '--session-id', s.sessionId, '--model', 'sonnet', '--permission-mode', 'bypassPermissions']);
     expect(tmux.sent).toEqual([{ name, text: 'go' }]);
   });
-  it('explicit opts.permissionMode overrides the configured default', async () => {
-    const { plane, tmux } = make();
-    const s = await plane.createSession({ cwd: '/w', permissionMode: 'plan' });
-    const name = 'lifestream-' + s.sessionId.slice(0, 8);
-    expect(tmux.sessions.get(name)!.command).toEqual(['claude', '--session-id', s.sessionId, '--permission-mode', 'plan']);
-  });
 });
 
 describe('sendMessage (B3)', () => {
@@ -58,7 +52,7 @@ describe('sendMessage (B3)', () => {
   });
   it('throws NotControllableError for external live session', async () => {
     const { plane, home } = make();
-    home.live = [{ pid: 1, sessionId: 'ext', cwd: '/w', status: 'busy' }];
+    home.live = [{ pid: 1, kernel: 'claude', sessionId: 'ext', cwd: '/w', status: 'busy' }];
     await expect(plane.sendMessage('ext', 'x')).rejects.toBeInstanceOf(NotControllableError);
   });
   it('throws NotFoundError for unknown id', async () => {
@@ -94,7 +88,7 @@ describe('detectPrompt / capturePane', () => {
 
   it('capturePane 对外部会话抛 NotControllable、对不存在会话抛 NotFound', async () => {
     const { plane, home } = make();
-    home.live = [{ pid: 1, sessionId: 'ext', cwd: '/w', status: 'busy' }];
+    home.live = [{ pid: 1, kernel: 'claude', sessionId: 'ext', cwd: '/w', status: 'busy' }];
     await expect(plane.capturePane('ext')).rejects.toBeInstanceOf(NotControllableError);
     await expect(plane.detectPrompt('nope')).rejects.toBeInstanceOf(NotFoundError);
   });
@@ -110,7 +104,7 @@ describe('detectPrompt / capturePane', () => {
 
   it('answerPrompt 对外部会话抛 NotControllable、对不存在会话抛 NotFound', async () => {
     const { plane, home } = make();
-    home.live = [{ pid: 1, sessionId: 'ext', cwd: '/w', status: 'busy' }];
+    home.live = [{ pid: 1, kernel: 'claude', sessionId: 'ext', cwd: '/w', status: 'busy' }];
     await expect(plane.answerPrompt('ext', '1')).rejects.toBeInstanceOf(NotControllableError);
     await expect(plane.answerPrompt('nope', '1')).rejects.toBeInstanceOf(NotFoundError);
   });
@@ -129,12 +123,12 @@ describe('adoptSession (B4)', () => {  it('resumes external (not live) into tmux
   });
   it('rejects when session still live without force', async () => {
     const { plane, home } = make();
-    home.live = [{ pid: 9, sessionId: 'ext', cwd: '/w', status: 'busy' }];
+    home.live = [{ pid: 9, kernel: 'claude', sessionId: 'ext', cwd: '/w', status: 'busy' }];
     await expect(plane.adoptSession('ext')).rejects.toBeInstanceOf(ConflictError);
   });
   it('force adopt kills the original process, then resumes in a managed window', async () => {
     const { plane, tmux, home, killed } = make();
-    home.live = [{ pid: 9, sessionId: 'ext', cwd: '/wlive', status: 'busy' }];
+    home.live = [{ pid: 9, kernel: 'claude', sessionId: 'ext', cwd: '/wlive', status: 'busy' }];
     const s = await plane.adoptSession('ext', { force: true });
     expect(s.origin).toBe('adopted');
     expect(killed).toContain(9);
@@ -165,7 +159,7 @@ describe('archiveSession (B6)', () => {
   });
   it('refuses external (non-managed) live session', async () => {
     const { plane, home } = make();
-    home.live = [{ pid: 1, sessionId: 'ext', cwd: '/w', status: 'busy' }];
+    home.live = [{ pid: 1, kernel: 'claude', sessionId: 'ext', cwd: '/w', status: 'busy' }];
     await expect(plane.archiveSession('ext')).rejects.toBeInstanceOf(NotControllableError);
   });
   it('throws NotFoundError for unknown id', async () => {
@@ -187,7 +181,7 @@ describe('getMessages', () => {
 describe('pollOnce events (B5)', () => {
   it('emits session.updated for live sessions', async () => {
     const { plane, home } = make();
-    home.live = [{ pid: 1, sessionId: 's1', cwd: '/w', status: 'busy' }];
+    home.live = [{ pid: 1, kernel: 'claude', sessionId: 's1', cwd: '/w', status: 'busy' }];
     const events: any[] = [];
     plane.on('event', e => events.push(e));
     await plane.pollOnce();
@@ -195,7 +189,7 @@ describe('pollOnce events (B5)', () => {
   });
   it('emits session.removed when a previously seen session disappears', async () => {
     const { plane, home } = make();
-    home.live = [{ pid: 1, sessionId: 's1', cwd: '/w', status: 'busy' }];
+    home.live = [{ pid: 1, kernel: 'claude', sessionId: 's1', cwd: '/w', status: 'busy' }];
     await plane.pollOnce();
     home.live = [];
     const events: any[] = [];

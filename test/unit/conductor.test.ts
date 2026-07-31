@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AgentConductor, formatResult } from '../../src/im/conductor.js';
-import { FakeAgent, FakeClock, InMemoryPendingStore, FakeTmux, FakeClaudeHome, InMemoryManagedRegistry } from '../fakes/index.js';
+import { FakeAgent, FakeClock, InMemoryPendingStore, FakeTmux, FakeSource, InMemoryManagedRegistry } from '../fakes/index.js';
 import { ControlPlane } from '../../src/domain/control-plane.js';
 
 function make(responder?: (k: string, t: string) => Promise<string> | string) {
@@ -8,7 +8,7 @@ function make(responder?: (k: string, t: string) => Promise<string> | string) {
   const pending = new InMemoryPendingStore();
   const clock = new FakeClock(1000);
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeClaudeHome(), registry: new InMemoryManagedRegistry(),
+    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
     clock, claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'id-xxxxxxxx',
   });
   if (responder) agent.responder = responder;

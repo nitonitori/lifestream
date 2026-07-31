@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { FileManagedRegistry } from '../../src/adapters/managed-registry.js';
@@ -11,11 +11,17 @@ describe('FileManagedRegistry', () => {
   it('persists and reloads entries', async () => {
     const f = join(dir(), 'managed.json');
     const r1 = new FileManagedRegistry(f);
-    await r1.put({ sessionId: 's1', tmuxSession: 't1', cwd: '/w', origin: 'managed', createdAt: 1 });
+    await r1.put({ sessionId: 's1', tmuxSession: 't1', cwd: '/w', kernel: 'claude', origin: 'managed', createdAt: 1 });
     const r2 = new FileManagedRegistry(f);
     expect((await r2.get('s1'))?.tmuxSession).toBe('t1');
+    expect((await r2.get('s1'))?.kernel).toBe('claude');
     await r2.remove('s1');
     expect(await r2.get('s1')).toBeNull();
+  });
+  it('给没有 kernel 的旧条目补上 claude', async () => {
+    const f = join(dir(), 'managed.json');
+    writeFileSync(f, JSON.stringify([{ sessionId: 's1', tmuxSession: 't1', cwd: '/w', origin: 'managed', createdAt: 1 }]));
+    expect((await new FileManagedRegistry(f).get('s1'))?.kernel).toBe('claude');
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ImLinker } from '../../src/im/linker.js';
 import { AgentConductor } from '../../src/im/conductor.js';
-import { FakeIm, FakeAgent, FakeClock, InMemoryPendingStore, FakeTmux, FakeClaudeHome, InMemoryManagedRegistry } from '../fakes/index.js';
+import { FakeIm, FakeAgent, FakeClock, InMemoryPendingStore, FakeTmux, FakeSource, InMemoryManagedRegistry } from '../fakes/index.js';
 import { ControlPlane } from '../../src/domain/control-plane.js';
 
 const ALLOWED = 'test-allowed-sender';
@@ -11,7 +11,7 @@ function make(responder?: (k: string, t: string) => Promise<string> | string, co
   const pending = new InMemoryPendingStore();
   const clock = new FakeClock(1000);
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeClaudeHome(), registry: new InMemoryManagedRegistry(),
+    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
     clock, claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'id-xxxxxxxx',
   });
   if (responder) agent.responder = responder;

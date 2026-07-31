@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ClaudeHome } from '../../src/adapters/claude-home.js';
+import { ClaudeSource } from '../../src/adapters/sources/claude.js';
 
 function setup() {
   const home = mkdtempSync(join(tmpdir(), 'lsh-'));
@@ -11,10 +11,10 @@ function setup() {
   writeFileSync(join(home, 'sessions', '111.json'), JSON.stringify({ pid: process.pid, sessionId: 's1', cwd: '/w', status: 'idle' }));
   writeFileSync(join(home, 'sessions', 'dead.json'), JSON.stringify({ pid: 2147480000, sessionId: 'sdead', cwd: '/w', status: 'idle' }));
   writeFileSync(join(home, 'projects', '-w-proj', 's1.jsonl'), JSON.stringify({ type: 'user', uuid: 'u1', message: { role: 'user', content: 'hi' } }) + '\n');
-  return new ClaudeHome(home);
+  return new ClaudeSource(home, 'claude');
 }
 
-describe('ClaudeHome (integration)', () => {
+describe('ClaudeSource (integration)', () => {
   it('reads live sessions for alive pid, skips dead (A2.AC1/AC3)', async () => {
     const live = await setup().readLiveSessions();
     expect(live.find(l => l.sessionId === 's1')).toMatchObject({ cwd: '/w', status: 'idle' });

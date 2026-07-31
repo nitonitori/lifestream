@@ -6,7 +6,11 @@ export class FileManagedRegistry implements ManagedRegistry {
   constructor(private file: string) {}
   private read(): ManagedEntry[] {
     if (!existsSync(this.file)) return [];
-    try { return JSON.parse(readFileSync(this.file, 'utf8')); } catch { return []; }
+    try {
+      // 旧条目没有 kernel（Task 2 之前只有 Claude），读时补默认值。
+      const rows = JSON.parse(readFileSync(this.file, 'utf8')) as ManagedEntry[];
+      return rows.map(r => ({ ...r, kernel: r.kernel ?? 'claude' }));
+    } catch { return []; }
   }
   private write(rows: ManagedEntry[]) {
     mkdirSync(dirname(this.file), { recursive: true });

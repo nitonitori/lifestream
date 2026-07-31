@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
-import type { TmuxAdapter, ClaudeHomeAdapter, ManagedRegistry, Clock, ManagedEntry } from '../ports/index.js';
-import type { SessionSummary, SessionDetail, TranscriptEvent, PlaneEvent } from './types.js';
+import type { TmuxAdapter, AgentSource, ManagedRegistry, Clock, ManagedEntry } from '../ports/index.js';
+import { isControllable } from '../ports/index.js';
+import type { Kernel, SessionSummary, SessionDetail, TranscriptEvent, PlaneEvent } from './types.js';
 import { NotFoundError, NotControllableError, ConflictError } from './errors.js';
 import { parseTranscript } from './transcript-parser.js';
 import { buildSummaries } from './session-discovery.js';
@@ -10,7 +11,7 @@ export function tmuxNameFor(id: string) { return 'lifestream-' + id.slice(0, 8);
 
 interface Deps {
   tmux: TmuxAdapter;
-  home: ClaudeHomeAdapter;
+  home: AgentSource;
   registry: ManagedRegistry;
   clock: Clock;
   claudeBin: string;
@@ -51,7 +52,10 @@ export class ControlPlane extends EventEmitter {
     const tmuxNames = new Set((await this.d.tmux.listSessions()).map(t => t.name));
     const ids = new Set<string>([...live.map(l => l.sessionId), ...managed.map(m => m.sessionId)]);
     const activity = await this.activityMap(ids);
-    return buildSummaries({ live, managed, tmuxNames, activity });
+    return buildSummaries({
+      live, managed, tmuxNames, activity,
+      adoptable: isControllable(this.d.home) ? new Set<Kernel>([this.d.home.kernel]) : new Set<Kernel>(),
+    });
   }
 
   async getSession(id: string): Promise<SessionDetail> {
@@ -114,10 +118,13 @@ export class ControlPlane extends EventEmitter {
     if (mode) cmd.push('--permission-mode', mode);
     if (opts.name) cmd.push('--name', opts.name);
     await this.d.tmux.newSession(name, opts.cwd, cmd);
-    const entry: ManagedEntry = { sessionId: id, tmuxSession: name, cwd: opts.cwd, origin: 'managed', createdAt: this.d.clock.now() };
+    const entry: ManagedEntry = { sessionId: id, tmuxSession: name, cwd: opts.cwd, kernel: this.d.home.kernel, origin: 'managed', createdAt: this.d.clock.now() };
     await this.d.registry.put(entry);
     if (opts.initialPrompt) await this.d.tmux.sendText(name, opts.initialPrompt);
-    return { sessionId: id, name: opts.name, cwd: opts.cwd, status: 'unknown', origin: 'managed', live: true, controllable: true, tmuxSession: name, createdAt: entry.createdAt };
+    return {
+      sessionId: id, kernel: entry.kernel, name: opts.name, cwd: opts.cwd, status: 'unknown', origin: 'managed',
+      live: true, controllable: true, adoptable: isControllable(this.d.home), tmuxSession: name, createdAt: entry.createdAt,
+    };
   }
 
   private async resolveCwd(id: string): Promise<string> {
@@ -152,8 +159,11 @@ export class ControlPlane extends EventEmitter {
     if (this.d.sessionPermissionMode) cmd.push('--permission-mode', this.d.sessionPermissionMode);
     await this.d.tmux.newSession(name, cwd, cmd);
     const createdAt = this.d.clock.now();
-    await this.d.registry.put({ sessionId: id, tmuxSession: name, cwd, origin: 'adopted', createdAt });
-    return { sessionId: id, cwd, status: 'unknown', origin: 'adopted', live: true, controllable: true, tmuxSession: name, createdAt };
+    await this.d.registry.put({ sessionId: id, tmuxSession: name, cwd, kernel: this.d.home.kernel, origin: 'adopted', createdAt });
+    return {
+      sessionId: id, kernel: this.d.home.kernel, cwd, status: 'unknown', origin: 'adopted',
+      live: true, controllable: true, adoptable: isControllable(this.d.home), tmuxSession: name, createdAt,
+    };
   }
 
   private killPid(pid: number): void {

@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { makeTools } from '../../src/mcp/control-mcp.js';
 import { ControlPlane } from '../../src/domain/control-plane.js';
-import { FakeClock, FakeTmux, FakeClaudeHome, InMemoryManagedRegistry, InMemoryPendingStore } from '../fakes/index.js';
+import { FakeClock, FakeTmux, FakeSource, InMemoryManagedRegistry, InMemoryPendingStore } from '../fakes/index.js';
 
 function setup(mode: 'direct' | 'im') {
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeClaudeHome(), registry: new InMemoryManagedRegistry(),
+    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
     clock: new FakeClock(1), claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'idaaaaaaaa',
   });
   const pending = new InMemoryPendingStore();

@@ -3,12 +3,12 @@ import { buildHttp } from '../../src/server/http.js';
 import { SseHub } from '../../src/server/sse.js';
 import { ControlPlane } from '../../src/domain/control-plane.js';
 import { AgentConductor, MESSENGER_CONVERSATION } from '../../src/im/conductor.js';
-import { FakeClock, FakeTmux, FakeClaudeHome, InMemoryManagedRegistry, InMemoryPendingStore, FakeAgent, InMemoryDeviceStore } from '../fakes/index.js';
+import { FakeClock, FakeTmux, FakeSource, InMemoryManagedRegistry, InMemoryPendingStore, FakeAgent, InMemoryDeviceStore } from '../fakes/index.js';
 
 async function app(responder?: (k: string, t: string) => string) {
   const clock = new FakeClock(1000);
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeClaudeHome(), registry: new InMemoryManagedRegistry(),
+    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
     clock, claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'id-1234abcd',
   });
   const agent = new FakeAgent();

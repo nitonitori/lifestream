@@ -1,9 +1,22 @@
 export type SessionStatus = 'busy' | 'idle' | 'unknown';
 export type SessionOrigin = 'managed' | 'external' | 'adopted';
 
+// 会话所属的 agent 内核（决定命令行方言与落盘约定）。
+export type Kernel = 'claude' | 'qodercli' | 'qoderwork' | 'qoder-ide';
+
+export interface CreateSessionOptions {
+  cwd: string;
+  kernel?: Kernel;
+  name?: string;
+  model?: string;
+  permissionMode?: string;
+  initialPrompt?: string;
+}
+
 // 来自 ~/.claude/sessions/<pid>.json
 export interface LiveSession {
-  pid: number;
+  pid?: number;   // 桌面 source 没有 pid
+  kernel: Kernel;
   sessionId: string;
   cwd: string;
   name?: string;
@@ -16,12 +29,14 @@ export interface LiveSession {
 
 export interface SessionSummary {
   sessionId: string;
+  kernel: Kernel;
   name?: string;
   cwd: string;
   status: SessionStatus;
   origin: SessionOrigin;
   live: boolean;
   controllable: boolean;
+  adoptable: boolean;
   tmuxSession?: string;
   pid?: number;
   lastActivity?: number;

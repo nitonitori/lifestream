@@ -9,7 +9,7 @@ import {
 } from '../../web/src/core/state';
 
 const S = (over: Partial<SessionSummary> & { sessionId: string }): SessionSummary =>
-  ({ cwd: '/w', status: 'idle', origin: 'managed', live: true, controllable: true, ...over });
+  ({ cwd: '/w', kernel: 'claude', status: 'idle', origin: 'managed', live: true, controllable: true, adoptable: true, ...over });
 
 describe('reducers', () => {
   it('sessionsReplaced 建新 Map，不改原 state', () => {

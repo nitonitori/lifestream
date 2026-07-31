@@ -1,4 +1,6 @@
-import type { LiveSession, PendingAction } from '../domain/types.js';
+import type { CreateSessionOptions, Kernel, LiveSession, PendingAction } from '../domain/types.js';
+
+export type { Kernel };
 
 export interface Clock { now(): number; }
 
@@ -13,16 +15,30 @@ export interface TmuxAdapter {
   killSession(name: string): Promise<void>;
 }
 
-export interface ClaudeHomeAdapter {
+// 读协议：任何能被"看见"的 agent 产品（含只读桌面 app）都实现这个。
+export interface AgentSource {
+  readonly kernel: Kernel;
   readLiveSessions(): Promise<LiveSession[]>;
   locateTranscript(sessionId: string): Promise<string | null>;
   readTranscript(path: string): Promise<string[]>;
   readTranscriptFrom(path: string, byteOffset: number): Promise<{ lines: string[]; offset: number }>;
   watchProjects(cb: (changedPath: string) => void): () => void;
+  sessionIdForPath(changedPath: string): string | null;
+}
+
+// 控制协议：能被 lifestream 拉进 tmux 驱动的 CLI 产品额外实现这个。
+export interface ControllableSource extends AgentSource {
+  launchCommand(sessionId: string, opts: CreateSessionOptions): string[];
+  resumeCommand(sessionId: string): string[];
+}
+
+export function isControllable(s: AgentSource): s is ControllableSource {
+  return typeof (s as ControllableSource).launchCommand === 'function';
 }
 
 export interface ManagedEntry {
   sessionId: string; tmuxSession: string; cwd: string;
+  kernel: Kernel;
   origin: 'managed' | 'adopted'; createdAt: number;
 }
 export interface ManagedRegistry {
