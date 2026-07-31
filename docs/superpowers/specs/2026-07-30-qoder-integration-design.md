@@ -173,13 +173,26 @@ export function isControllable(s: AgentSource): s is ControllableSource {
 | | 会话枚举 | cwd | busy / idle |
 |---|---|---|---|
 | `claude` | `~/.claude/sessions/*.json` + `kill(pid,0)`（现状） | json 字段 | 现有 `deriveStatus` |
-| `qodercli` | `logs/sessions/*/*/segments/*.jsonl` 的 run 名 pid 存活 | segments 首行 `session.config.loaded.data.project_root` | segments 尾部事件名 |
+| `qodercli` | `logs/sessions/*/*/segments/*.jsonl` 的 run 名 pid 存活（三道闸，见下） | segments 首行 `session.config.loaded.data.project_root` | 一律 `unknown` |
 | `qoderwork` | 心跳文件（§5） | 心跳载荷 `cwd` | 心跳事件名 |
 | `qoder-ide` | 心跳文件（§5） | 心跳载荷 `cwd` | 心跳事件名 |
 
-`qodercli` 的状态规则：**最后一条事件名以 `.started` 结尾 → busy，以 `.finished` 结尾 → idle**。
-事件成对追加，这条规则不依赖枚举具体事件名。只有 `qodercli` 读 segments —— 两个桌面产品的
-枚举、cwd、busy/idle 全部来自心跳，不再解析 segments。
+`qodercli` 的状态：**一律报 `unknown`，不做任何推断。**（修订于实施期，2026-07-31）
+本节原先的规则是「最后一条事件名以 `.started` 结尾 → busy，`.finished` → idle」，前提是事件成对追加。
+实施期在真实的 143 条事件 run 上逐位置比对该规则与 turn 深度真值，**143 个位置里 76 个不一致**：
+`attachment.generator.finished` 出现 55 次却没有对应的 `.started`，并发的 hook 事件还会造出 29.2s
+的假空闲窗口（真实工具执行实测 30s、39s）。宁可不报状态，也不报错的状态。
+只有 `qodercli` 读 segments —— 两个桌面产品的枚举、cwd、状态全部来自心跳，不解析 segments。
+
+`qodercli` 的存活判定是**三道闸**（run 名尾部 pid 是历史值：`logs/sessions` 只追加不清理，
+重启后 pid 会被系统复用；被复用的 pid 会造出「幽灵活会话」—— 列表里删不掉，且 force 接管会把
+无关进程 SIGTERM）：
+
+1. run 日志 `mtime` 必须晚于本次开机（`Date.now() - os.uptime() * 1000`）；
+2. `kill(pid, 0)` 存活；
+3. `ps -p <pid> -o comm=` 的 basename 等于本 source 的 bin 的 basename。
+
+第 3 道逐个 pid 查而不批量（`ps -p a,b,c` 只要有一个 pid 越界就整批退出 1），`ps` 自身失败按不存活处理。
 
 `lastActivity` 一律取 transcript 末条消息时间戳（沿用现有 `activityMap`），不改语义。
 
@@ -314,8 +327,8 @@ MCP `get_session_prompt`、编号选项按钮（onclick 改走 §7.1 的字面�
 
 - 每个 source 的 `sessionIdForPath` 归属：`~/.qoder/projects` 下平铺 vs `transcript/` 的分流、
   Quest 的 `task-*` 名、非 jsonl 路径返回 `null`。
-- segments 状态规则：尾部 `.started` → busy、`.finished` → idle。
-- `session.config.loaded` 解析出 `project_root` 作为 cwd。
+- `session.config.loaded` 解析出 `project_root` 作为 cwd（取第一条；无则 cwd 落成空串）。
+- `qodercli` 存活三道闸各自能挡住对应情形：开机前写的 run 日志、已死 pid、pid 活着但进程名不匹配。
 - 心跳文件解析：TTL 内/外、`Stop` 后判 idle 且不 live。
 - `QoderIdeSource` 的转录形状过滤：只有 `transcript/` 下有转录的心跳才算 IDE 会话；
   `QoderWorkSource` 不过滤（无转录的新会话也列出）。

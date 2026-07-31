@@ -1233,7 +1233,16 @@ git commit -m "refactor(control): ControlPlane 改吃 AgentSource[]，命令行�
 
 ### Task 4: QoderCliSource + segments 解析 + qoder 配置块
 
-第二个可控内核。存活判定用 segments run 名尾部的 `-p<pid>`（**已实测是真实的每进程 pid**，18 个 run pid 互异），cwd 与 busy/idle 用 segments 事件。
+第二个可控内核。存活判定用 segments run 名尾部的 `-p<pid>`（**已实测是真实的每进程 pid**，18 个 run pid 互异），cwd 用 segments 事件。
+
+> **实施期修订（2026-07-31，用户裁定）**：本任务的两处原始设计被真实数据否证，下面的 Step 1/3/5/7 已按裁定改写：
+> 1. **状态一律 `unknown`**，不做任何推断。原规则「末条事件名以 `.started` 结尾 → busy」前提是事件成对追加；
+>    在真实的 143 条事件 run 上逐位置比对该规则与 turn 深度真值，**143 个位置里 76 个不一致**
+>    （`attachment.generator.finished` 出现 55 次却无对应 `.started`；并发 hook 造出 29.2s 假空闲窗口）。
+> 2. **存活判定是三道闸**，不是「pid 活着」一道：run 名尾部 pid 是历史值（`logs/sessions` 只追加不清理），
+>    pid 复用会造出「幽灵活会话」—— 列表里删不掉（`archiveSession` 见 `isLive` 就拒），且 force 接管会
+>    `killPid` 把无关进程 SIGTERM。三道闸 = 日志 mtime 晚于本次开机 + `kill(pid,0)` + `ps -o comm=` 的 basename
+>    等于本 source 的 bin 的 basename。
 
 **Files:**
 - Create: `src/domain/segments.ts`
@@ -1242,13 +1251,17 @@ git commit -m "refactor(control): ControlPlane 改吃 AgentSource[]，命令行�
 - Modify: `src/config.ts`（加 `qoder` 块，5 个字段一次加全）
 - Modify: `src/cli.ts`（`buildPlane` 加第二个 source）
 - Modify: `src/domain/pending.ts:5`（`describeAction('create')` 带上 kernel）
+- Modify: `src/adapters/sources/base.ts`（`CliSource` 的 `bin` 由 `private` 改 `protected`，供进程名闸读取）
+- Modify: `src/domain/session-discovery.ts`（`buildSummaries` 的 cwd 兜底改 `||`：live 的空串不该盖掉注册表里的正确值）
+- Modify: `lifestream.config.example.json`（补 `qoder` 块）
 - Test: `test/unit/sources.test.ts`（追加 `QoderCliSource` 段）
 - Test: `test/unit/pending.test.ts`（新建）
+- Test: `test/unit/session-discovery.test.ts`（追加 cwd 兜底那条）
 
 **Interfaces:**
 - Consumes: Task 2 的 `CliSource` / `isPidAlive` / `safeReaddir`；Task 3 的 `Deps.sources`
 - Produces:
-  - `src/domain/segments.ts`：`pidFromRunName(runFile: string): number | null`、`parseSegments(lines: string[]): { cwd?: string; status: SessionStatus }`
+  - `src/domain/segments.ts`：`pidFromRunName(runFile: string): number | null`、`parseSegments(lines: string[]): { cwd?: string }`
   - `src/adapters/sources/qoder-cli.ts`：`class QoderCliSource extends CliSource`，`readonly kernel = 'qodercli' as const`，构造 `(home, bin, permissionMode?)`
   - `src/config.ts`：`cfg.qoder = { cliBin, cliPermissionMode, qoderHome, qoderWorkHome, heartbeatTtlMs }`
 
@@ -1282,41 +1295,26 @@ describe('parseSegments', () => {
     expect(r.cwd).toBe('/Users/l/dev/foo');
   });
 
-  test('末条事件以 .started 结尾判 busy', () => {
+  test('只取第一条 session.config.loaded 的 project_root', () => {
     const r = parseSegments([
-      L({ type: 'session.phase.finished', data: {} }),
-      L({ type: 'model.request.started', data: {} }),
+      L({ type: 'session.config.loaded', data: { project_root: '/first' } }),
+      L({ type: 'session.config.loaded', data: { project_root: '/second' } }),
     ]);
-    expect(r.status).toBe('busy');
-  });
-
-  test('末条事件以 .finished 结尾判 idle', () => {
-    const r = parseSegments([
-      L({ type: 'model.request.started', data: {} }),
-      L({ type: 'model.response.completed', data: {} }),
-      L({ type: 'turn.finished', data: { reason: 'end_turn' } }),
-    ]);
-    expect(r.status).toBe('idle');
-  });
-
-  test('非 .started/.finished 的事件不改变状态', () => {
-    const r = parseSegments([
-      L({ type: 'model.request.started', data: {} }),
-      L({ type: 'input.prompt.received', data: {} }),
-    ]);
-    expect(r.status).toBe('busy');
+    expect(r.cwd).toBe('/first');
   });
 
   test('坏行跳过而不抛', () => {
-    const r = parseSegments(['not json', L({ type: 'turn.finished', data: {} })]);
-    expect(r.status).toBe('idle');
+    const r = parseSegments(['not json', L({ type: 'session.config.loaded', data: { project_root: '/x' } })]);
+    expect(r.cwd).toBe('/x');
   });
 
-  test('没有任何事件时默认 idle 且无 cwd', () => {
-    expect(parseSegments([])).toEqual({ cwd: undefined, status: 'idle' });
+  test('没有任何事件时无 cwd', () => {
+    expect(parseSegments([])).toEqual({ cwd: undefined });
   });
 });
 ```
+
+**不要**给 `parseSegments` 加任何状态推断（后缀规则、turn 深度、时间窗都不做）—— 见本任务开头的修订说明。
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -1328,52 +1326,58 @@ Expected: FAIL —— `Cannot find module '../../src/domain/segments.js'`。
 - [ ] **Step 3: 写 `src/domain/segments.ts`**
 
 ```ts
-import type { SessionStatus } from './types.js';
-
+// qodercli 的 run 文件名形如 <ISO 时间戳>-<随机>-p<pid>.jsonl，尾部 pid 是真实的每进程 pid。
 export function pidFromRunName(runFile: string): number | null {
   const m = runFile.match(/-p(\d+)(?:\.jsonl)?$/);
   return m ? Number(m[1]) : null;
 }
 
-// segments 是事件日志（不是转录）：事件成对追加，所以「末条以 .started 结尾」就是 busy。
-export function parseSegments(lines: string[]): { cwd?: string; status: SessionStatus } {
+// segments 是事件日志（不是转录）。事件并非成对追加（实测大量 .finished 没有对应 .started，
+// 并发 hook 还会造出假空闲窗口），故这里只抽 cwd，状态交给上层一律报 unknown。
+export function parseSegments(lines: string[]): { cwd?: string } {
   let cwd: string | undefined;
-  let status: SessionStatus = 'idle';
   for (const line of lines) {
     let o: any;
     try { o = JSON.parse(line); } catch { continue; }
     const type = typeof o?.type === 'string' ? o.type : '';
+    // 取第一条 session.config.loaded：run 内 project_root 不变，首条即可，后续不覆盖。
     if (cwd === undefined && type === 'session.config.loaded' && typeof o?.data?.project_root === 'string') {
       cwd = o.data.project_root;
     }
-    if (type.endsWith('.started')) status = 'busy';
-    else if (type.endsWith('.finished')) status = 'idle';
   }
-  return { cwd, status };
+  return { cwd };
 }
 ```
-
-`SessionStatus` 是 `src/domain/types.ts` 里 `LiveSession.status` 的那个联合类型 —— 用它的实际导出名（若未导出则加 `export`）。
 
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run test/unit/segments.test.ts
 ```
-Expected: PASS（6 passed）。
+Expected: PASS（7 passed）。
 
 - [ ] **Step 5: 写失败的测试 —— QoderCliSource**
 
 `test/unit/sources.test.ts` 追加：
 
+`import { execFileSync } from 'node:child_process';`，并把 `utimesSync` 加进本文件的 `node:fs` import。
+
 ```ts
 import { QoderCliSource } from '../../src/adapters/sources/qoder-cli.js';
 
 describe('QoderCliSource', () => {
+  // 下面的用例拿本进程 pid 当「活 pid」，要过进程名核对就得把 bin 传成本进程在 ps 里的名字。
+  // 不能硬编码 'node'：ps -o comm= 给的是进程标题，而 vitest 的 worker 会把它改写成
+  // `node (vitest 1)`，硬编码会让本该 live 的用例被进程名闸挡掉。故运行时问一次 ps。
+  const selfBin = execFileSync('ps', ['-p', String(process.pid), '-o', 'comm='], { encoding: 'utf8' }).trim();
+
+  // 返回写入的 run 文件路径，供「开机时间闸」的测试 backdate mtime。
   const seed = (h: string, sessionId: string, run: string, lines: string[]) => {
     const dir = join(h, 'logs', 'sessions', '-Users-l-dev-foo', sessionId, 'segments');
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, `${run}.jsonl`), lines.join('\n') + '\n');
+    const p = join(dir, `${run}.jsonl`);
+    writeFileSync(p, lines.join('\n') + '\n');
+    return p;
   };
 
   test('kernel 是 qodercli 且用 qodercli 方言', () => {
@@ -1383,7 +1387,8 @@ describe('QoderCliSource', () => {
       .toEqual(['qodercli', '--session-id', 'sid', '--permission-mode', 'bypass_permissions']);
   });
 
-  test('run 名 pid 活着才算 live，cwd 与状态取自 segments', async () => {
+  // 传 selfBin 的几条会真的走通 ps 核对，因此顺带正向覆盖了进程名闸。
+  test('run 名 pid 活着才算 live，cwd 取自 segments、状态一律 unknown', async () => {
     const h = home();
     seed(h, 'alive', `2026-07-30T16-31-03-aaaa-p${process.pid}`, [
       JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/Users/l/dev/foo' } }),
@@ -1392,9 +1397,9 @@ describe('QoderCliSource', () => {
     seed(h, 'dead', '2026-07-30T16-31-03-bbbb-p99999999', [
       JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/Users/l/dev/bar' } }),
     ]);
-    const live = await new QoderCliSource(h, 'qodercli', 'bypass_permissions').readLiveSessions();
+    const live = await new QoderCliSource(h, selfBin, 'bypass_permissions').readLiveSessions();
     expect(live.map(x => x.sessionId)).toEqual(['alive']);
-    expect(live[0]).toMatchObject({ kernel: 'qodercli', cwd: '/Users/l/dev/foo', status: 'busy' });
+    expect(live[0]).toMatchObject({ kernel: 'qodercli', cwd: '/Users/l/dev/foo', status: 'unknown' });
   });
 
   test('同一会话有多个 run 时取名字最大的那个（run 名以 ISO 时间戳开头）', async () => {
@@ -1405,9 +1410,48 @@ describe('QoderCliSource', () => {
     seed(h, 's1', `2026-07-30T16-47-38-bbbb-p${process.pid}`, [
       JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/new' } }),
     ]);
-    const live = await new QoderCliSource(h, 'qodercli').readLiveSessions();
+    const live = await new QoderCliSource(h, selfBin).readLiveSessions();
     expect(live).toHaveLength(1);
     expect(live[0]!.cwd).toBe('/new');
+  });
+
+  test('pid 活着但进程名不是本 source 的 bin，不算 live（pid 复用防护）', async () => {
+    const h = home();
+    seed(h, 'reused', `2026-07-30T16-31-03-cccc-p${process.pid}`, [
+      JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/x' } }),
+    ]);
+    const live = await new QoderCliSource(h, 'qodercli').readLiveSessions();
+    expect(live).toEqual([]);
+  });
+
+  test('run 日志在本次开机之前写的，不算 live（pid 复用防护）', async () => {
+    const h = home();
+    const p = seed(h, 'stale', `2026-07-30T16-31-03-dddd-p${process.pid}`, [
+      JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/x' } }),
+    ]);
+    const old = new Date('2000-01-01T00:00:00Z');
+    utimesSync(p, old, old);
+    const live = await new QoderCliSource(h, selfBin).readLiveSessions();
+    expect(live).toEqual([]);
+  });
+
+  test('run 名没有 -p 后缀则跳过', async () => {
+    const h = home();
+    seed(h, 'nopid', '2026-07-30T16-31-03-eeee', [
+      JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/x' } }),
+    ]);
+    const live = await new QoderCliSource(h, selfBin).readLiveSessions();
+    expect(live).toEqual([]);
+  });
+
+  test('segments 里没有 project_root 时 cwd 落成空串', async () => {
+    const h = home();
+    seed(h, 'nocwd', `2026-07-30T16-31-03-ffff-p${process.pid}`, [
+      JSON.stringify({ type: 'turn.started', data: {} }),
+    ]);
+    const live = await new QoderCliSource(h, selfBin).readLiveSessions();
+    expect(live).toHaveLength(1);
+    expect(live[0]!.cwd).toBe('');
   });
 
   test('平铺转录归自己，transcript/ 下的不归自己', () => {
@@ -1427,9 +1471,14 @@ Expected: FAIL —— `Cannot find module '../../src/adapters/sources/qoder-cli.
 
 - [ ] **Step 7: 写 `src/adapters/sources/qoder-cli.ts`**
 
+同时把 `src/adapters/sources/base.ts` 里 `CliSource` 构造的 `private readonly bin` 改成 `protected readonly bin`
+（`pidRunsBin` 要读它；`permissionMode` 保持 `private`）。
+
 ```ts
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, statSync } from 'node:fs';
+import { uptime } from 'node:os';
+import { basename, join } from 'node:path';
 import type { LiveSession } from '../../domain/types.js';
 import { parseSegments, pidFromRunName } from '../../domain/segments.js';
 import { CliSource, isPidAlive, safeReaddir } from './base.js';
@@ -1437,22 +1486,43 @@ import { CliSource, isPidAlive, safeReaddir } from './base.js';
 export class QoderCliSource extends CliSource {
   readonly kernel = 'qodercli' as const;
 
+  // 第二道闸：pid 活着不代表它还是 qodercli —— 复用后可能是任意进程。
+  // 逐个 pid 查而不批量：`ps -p a,b,c` 只要有一个 pid 越界就整批退出 1。
+  // ps 本身失败时返回 false（宁可少报一个会话，也不能把无关进程当成会话去 kill）。
+  private pidRunsBin(pid: number): boolean {
+    try {
+      const comm = execFileSync('ps', ['-p', String(pid), '-o', 'comm='], { encoding: 'utf8', timeout: 2000 }).trim();
+      // ps 给出的形状不统一（node 是绝对路径、qodercli 是短名），按 basename 比。
+      return comm !== '' && basename(comm) === basename(this.bin);
+    } catch { return false; }
+  }
+
+  // qodercli 没有 Claude 那样的 sessions/<pid>.json 心跳文件，
+  // 只能从 logs/sessions/<project>/<sessionId>/segments 的 run 日志反推存活。
   async readLiveSessions(): Promise<LiveSession[]> {
     const root = join(this.home, 'logs', 'sessions');
     const out: LiveSession[] = [];
+    // run 名尾部的 pid 是历史值：logs/sessions 只追加不清理，重启后 pid 会被系统复用，
+    // 于是「幽灵活会话」既删不掉（archiveSession 见 isLive 就拒），force 接管还会 SIGTERM 无关进程。
+    // 第一道闸：日志文件必须在本次开机之后被写过。
+    const bootMs = Date.now() - uptime() * 1000;
     for (const proj of safeReaddir(root)) {
       for (const sessionId of safeReaddir(join(root, proj))) {
         const segDir = join(root, proj, sessionId, 'segments');
         // run 名以 ISO 时间戳开头，字典序最大即最新。
         const run = safeReaddir(segDir).filter(f => f.endsWith('.jsonl')).sort().at(-1);
         if (!run) continue;
+        const runPath = join(segDir, run);
+        let mtimeMs: number;
+        try { mtimeMs = statSync(runPath).mtimeMs; } catch { continue; }
+        if (mtimeMs < bootMs) continue;
         const pid = pidFromRunName(run);
-        if (pid === null || !isPidAlive(pid)) continue;
+        if (pid === null || !isPidAlive(pid) || !this.pidRunsBin(pid)) continue;
         let lines: string[];
-        try { lines = readFileSync(join(segDir, run), 'utf8').split('\n').filter(Boolean); }
+        try { lines = readFileSync(runPath, 'utf8').split('\n').filter(Boolean); }
         catch { continue; }
-        const { cwd, status } = parseSegments(lines);
-        out.push({ sessionId, kernel: 'qodercli', cwd: cwd ?? '', status, pid });
+        const { cwd } = parseSegments(lines);
+        out.push({ sessionId, kernel: 'qodercli', cwd: cwd ?? '', status: 'unknown', pid });
       }
     }
     return out;
@@ -1460,20 +1530,30 @@ export class QoderCliSource extends CliSource {
 }
 ```
 
+三道闸的顺序不能调整：`isPidAlive` 必须在 `pidRunsBin` 之前（`ps` 是子进程，且已死/越界的 pid 先挡掉才不浪费 spawn）。
+
 若 `LiveSession` 还有别的必填字段，按 `src/domain/types.ts` 补齐（参照 `session-discovery.ts` 里 `toLiveSession` 的返回值）。
 
 - [ ] **Step 8: 加 `qoder` 配置块并接进 `buildPlane`**
 
-`src/config.ts` 加（`expand` 用该文件里 `paths.claudeHome` 那处的同一个 home 展开写法；本块 5 个字段一次加全，Task 5 / Task 6 会读 `qoderWorkHome` 与 `heartbeatTtlMs`）：
+`src/config.ts` 的 `export interface Config` 加一个字段（`loadConfig` 的返回类型就是它，不同步加会直接类型报错）：
 
 ```ts
-  qoder: {
-    cliBin: 'qodercli',
-    cliPermissionMode: 'bypass_permissions',
-    qoderHome: expand('~/.qoder'),
-    qoderWorkHome: expand('~/.qoderwork'),
-    heartbeatTtlMs: 30 * 60 * 1000,
-  },
+  qoder: { cliBin: string; cliPermissionMode: string; qoderHome: string; qoderWorkHome: string; heartbeatTtlMs: number };
+```
+
+`loadConfig` 的返回对象加（写法必须与同文件 `paths` 块一致：**先取 `raw` 覆盖值、再 `expand`**。
+两个路径字段不能用 `{...默认, ...(raw.qoder ?? {})}` 展开 —— 那样用户填的 `~/.qoder-alt` 不会被展开成
+绝对路径，会留一个字面 `~`。本块 5 个字段一次加全，Task 5 / Task 6 会读 `qoderWorkHome` 与 `heartbeatTtlMs`）：
+
+```ts
+    qoder: {
+      cliBin: raw.qoder?.cliBin ?? 'qodercli',
+      cliPermissionMode: raw.qoder?.cliPermissionMode ?? 'bypass_permissions',
+      qoderHome: expand(raw.qoder?.qoderHome ?? '~/.qoder'),
+      qoderWorkHome: expand(raw.qoder?.qoderWorkHome ?? '~/.qoderwork'),
+      heartbeatTtlMs: raw.qoder?.heartbeatTtlMs ?? 30 * 60 * 1000,
+    },
 ```
 
 `src/cli.ts` 的 `buildPlane`，`sources` 数组加第二项：
@@ -1517,7 +1597,7 @@ describe('describeAction', () => {
 再把 `src/domain/pending.ts:5` 那行换成：
 
 ```ts
-  if (kind === 'create') return `在 ${params.cwd} 新建${params.kernel ? ' ' + params.kernel : ''}会话${params.initialPrompt ? '，首条: ' + params.initialPrompt : ''}`;
+  if (kind === 'create') return `在 ${params.cwd} 新建${params.kernel ? ' ' + params.kernel + ' ' : ''}会话${params.initialPrompt ? '，首条: ' + params.initialPrompt : ''}`;
 ```
 
 重跑该文件确认 3 条全绿。**不要**给 `describeAction` 加 kernel → 显示名的映射表（Global Constraints
