@@ -22,7 +22,9 @@
 - 心跳推导：`live` = `now - ts <= ttlMs` 且 `event !== 'Stop'`；`busy` = `event === 'PreToolUse'`，其余 `idle`。`heartbeatTtlMs` 默认 `30 * 60 * 1000`。
 - settings 注入目标：`~/.qoder/settings.json`（qoder-ide）、`~/.qoderwork/settings.json`（qoderwork）。**必须**幂等合并、先备份到 `<settings>.lifestream-backup-<ts>`、只增删自己那一项（这两个文件里住着 r2c / loongsuite 的 hook），`--dry-run` 不落盘。绝不在 `serve` / daemon 启动路径里静默注入。
 - 轮询节拍：可控 source 组 2000ms，只读 source 组 5000ms。
-- 前端不认识 kernel 语义：「接管」按钮只看 `SessionSummary.adoptable: boolean`；内核标签 `CC` / `QCLI` / `QW` / `QODER`。
+- 前端不认识 kernel 语义：判断「该产品能不能接管」只看 `SessionSummary.adoptable: boolean`，不得读 `kernel` 值。
+  `adoptable` 是**能力位**（该会话所属 source 满足 `isControllable`），不含会话当下状态；「接管」按钮的状态条件
+  `!controllable && live` 继续由前端把关，即 Task 7 Step 6 的 `!x.controllable && x.live && x.adoptable`。内核标签 `CC` / `QCLI` / `QW` / `QODER`。
 - `src/config.ts` 的 `qoder` 配置块在 Task 4 一次加全（5 个字段：`cliBin`、`cliPermissionMode`、`qoderHome`、`qoderWorkHome`、`heartbeatTtlMs`），Task 5 / Task 6 只读不改 —— 不要因为「本任务只用到 2 个字段」就把它拆开。
 - **测试环境没有 DOM**（`vitest.config.ts` 是 `environment: 'node'`，仓库无 jsdom 依赖）。`web/src/components/*.ts`、`web/src/views/*.ts` 的改动只能靠 `tsc -p tsconfig.web.json` + Task 8 的真实浏览器验证兜底，**不要为它们发明 DOM 测试**，也不要为此引入 jsdom。
 - 所有 node / tsc / vitest 一律用绝对路径 `/Users/l/.nvm/versions/node/v24.18.0/bin/node`（规避 nvm 陷阱）。

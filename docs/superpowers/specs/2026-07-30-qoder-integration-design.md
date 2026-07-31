@@ -246,7 +246,9 @@ lifestream hooks status
   直接查表，不做文件系统探测。
 - `SessionSummary` 加 `adoptable: boolean`（= 该会话所属 source 满足 `isControllable`）。
   今天 `web/src/views/console-view.ts:85` 的条件是 `!x.controllable && x.live` 就画"接管"按钮，
-  桌面产品会画出一个必然失败的按钮；改成看 `adoptable`。**前端不认识 kernel 语义，只认识这个布尔。**
+  桌面产品会画出一个必然失败的按钮；**再与 `adoptable` 相与**（`!x.controllable && x.live && x.adoptable`）。
+  `adoptable` 是能力位、不含会话当下状态：已受管的会话仍是 `adoptable: true`（它所属产品支持接管），
+  按钮不出现是因为 `!controllable` 不成立。**前端不认识 kernel 语义，只认识这个布尔。**
 - `POST /api/sessions` 接受可选 `kernel` 字段（默认 `'claude'`）。
 - 侧栏卡片加内核标签：`CC` / `QCLI` / `QW` / `QODER`，复用 `web/src/core/state.ts` 的 `tagOf`
   同一位置。

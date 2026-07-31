@@ -1,5 +1,6 @@
 {
   "extends": "./tsconfig.json",
+  // rootDir 必须覆到仓库根：base 的 rootDir 是 src，test/ 在它外面会触发 TS6059。
   "compilerOptions": { "noEmit": true, "rootDir": "." },
   "include": ["src/**/*", "test/**/*"],
   "exclude": ["test/unit/web-*.test.ts"]
