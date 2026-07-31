@@ -462,6 +462,11 @@ git commit -m "fix(control): sendLiteral 用 -- 终止选项解析，补路由�
 - Modify: `src/domain/control-plane.ts`（最小适配：`Deps.home` 类型、`buildSummaries` 多一个入参、registry 写入带 `kernel`）
 - Modify: `src/cli.ts:12`
 - Modify: `test/fakes/index.ts:34-46`（`FakeClaudeHome` → `FakeSource`）
+- Modify: `FakeClaudeHome` 的其余 8 个引用方，纯机械改名（`tsc --noEmit` 会全部报出来）：
+  `test/unit/control-mcp.test.ts`、`test/unit/linker.test.ts`、`test/unit/conductor.test.ts`、
+  `test/integration/im-linker-e2e.test.ts`、`test/component/static.test.ts`、
+  `test/component/agent-routes.test.ts`、`test/component/routes.test.ts`、
+  `test/component/compose.test.ts`、`test/component/devices.test.ts`
 - Create: `test/unit/sources.test.ts`
 - Modify: `test/unit/session-discovery.test.ts`、`test/unit/control-plane.test.ts:44-49`
 - Rename: `test/integration/claude-home.test.ts` → `test/integration/claude-source.test.ts`
