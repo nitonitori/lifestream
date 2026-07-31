@@ -73,8 +73,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
   });
   app.post('/api/sessions/:id/messages', (req, reply) =>
     wrap(reply, async () => { await plane.sendMessage((req.params as any).id, (req.body as any).text); return { ok: true }; }, 202));
-  // 交互选择器：只读识别；应答走 send 通道。
+  // 交互选择器：只读识别 + 字面应答(不追加 Enter)。
   app.get('/api/sessions/:id/prompt', (req, reply) => wrap(reply, () => plane.detectPrompt((req.params as any).id)));
+  app.post('/api/sessions/:id/prompt', (req, reply) =>
+    wrap(reply, async () => { await plane.answerPrompt((req.params as any).id, (req.body as any).key); return { ok: true }; }, 202));
   app.post('/api/sessions', (req, reply) => wrap(reply, () => plane.createSession(req.body as any), 201));
   app.post('/api/sessions/:id/adopt', (req, reply) =>
     wrap(reply, () => plane.adoptSession((req.params as any).id, { force: (req.body as any)?.force }), 200));

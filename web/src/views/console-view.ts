@@ -143,7 +143,7 @@ export function mountConsole(
 
   // ---------- 交互选择器 ----------
   const answerPrompt = async (id: string, key: string) => {
-    try { await api.sendSessionMessage(id, key); }
+    try { await api.answerPrompt(id, key); }
     catch (e) { toast(errText(e, '发送失败')); return; }
     toast('已选择 ' + key);
     setTimeout(() => void loadPrompt(id), 600);

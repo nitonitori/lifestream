@@ -100,6 +100,11 @@ export class ControlPlane extends EventEmitter {
     return parseInteractivePrompt(await this.capturePane(id));
   }
 
+  // 应答交互选择器：只送字面字符(编号)，不追加 Enter。
+  async answerPrompt(id: string, key: string): Promise<void> {
+    await this.d.tmux.sendLiteral(await this.managedTmuxName(id), key);
+  }
+
   async createSession(opts: { cwd: string; name?: string; model?: string; permissionMode?: string; initialPrompt?: string }): Promise<SessionSummary> {
     const id = this.d.newSessionId();
     const name = tmuxNameFor(id);

@@ -98,6 +98,22 @@ describe('detectPrompt / capturePane', () => {
     await expect(plane.capturePane('ext')).rejects.toBeInstanceOf(NotControllableError);
     await expect(plane.detectPrompt('nope')).rejects.toBeInstanceOf(NotFoundError);
   });
+
+  it('answerPrompt 只送字面字符，不追加 Enter', async () => {
+    const { plane, tmux } = make();
+    const s = await plane.createSession({ cwd: '/w' });
+    const name = 'lifestream-' + s.sessionId.slice(0, 8);
+    await plane.answerPrompt(s.sessionId, '2');
+    expect(tmux.literal).toEqual([{ name, text: '2' }]);
+    expect(tmux.sent).toEqual([]);   // 不碰 sendText 通道（那条会补一个 Enter）
+  });
+
+  it('answerPrompt 对外部会话抛 NotControllable、对不存在会话抛 NotFound', async () => {
+    const { plane, home } = make();
+    home.live = [{ pid: 1, sessionId: 'ext', cwd: '/w', status: 'busy' }];
+    await expect(plane.answerPrompt('ext', '1')).rejects.toBeInstanceOf(NotControllableError);
+    await expect(plane.answerPrompt('nope', '1')).rejects.toBeInstanceOf(NotFoundError);
+  });
 });
 
 describe('adoptSession (B4)', () => {  it('resumes external (not live) into tmux', async () => {

@@ -8,6 +8,7 @@ export interface TmuxAdapter {
   hasSession(name: string): Promise<boolean>;
   newSession(name: string, cwd: string, command: string[]): Promise<void>;
   sendText(name: string, text: string): Promise<void>;   // 多行安全: load-buffer -> paste-buffer -> Enter
+  sendLiteral(name: string, text: string): Promise<void>;  // 字面字符, 不追加 Enter: send-keys -l
   capturePane(name: string): Promise<string>;
   killSession(name: string): Promise<void>;
 }

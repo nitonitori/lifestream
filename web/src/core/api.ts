@@ -42,6 +42,7 @@ export interface Api {
   sessionMessages(id: string): Promise<TranscriptEvent[]>;
   sendSessionMessage(id: string, text: string): Promise<void>;
   sessionPrompt(id: string): Promise<InteractivePrompt | null>;
+  answerPrompt(id: string, key: string): Promise<void>;
   createSession(cwd: string): Promise<SessionSummary>;
   adoptSession(id: string, force: boolean): Promise<SessionSummary>;
   archiveSession(id: string): Promise<void>;
@@ -89,6 +90,7 @@ export function createApi(onUnauthorized: () => void): Api {
     sessionMessages: id => call<TranscriptEvent[]>(`/api/sessions/${enc(id)}/messages`),
     sendSessionMessage: (id, text) => post<void>(`/api/sessions/${enc(id)}/messages`, { text }),
     sessionPrompt: id => call<InteractivePrompt | null>(`/api/sessions/${enc(id)}/prompt`),
+    answerPrompt: (id, key) => post<void>(`/api/sessions/${enc(id)}/prompt`, { key }),
     createSession: cwd => post<SessionSummary>('/api/sessions', { cwd }),
     adoptSession: (id, force) => post<SessionSummary>(`/api/sessions/${enc(id)}/adopt`, { force }),
     archiveSession: id => call<void>(`/api/sessions/${enc(id)}`, { method: 'DELETE' }),

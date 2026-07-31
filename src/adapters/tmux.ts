@@ -42,6 +42,11 @@ export class Tmux implements TmuxAdapter {
     await this.run(['send-keys', '-t', name, 'Enter']);
   }
 
+  // send-keys -l 关掉键名查找、按字面 UTF-8 处理, 因此发不出 Escape/Up/Enter, 只能送字面字符。
+  async sendLiteral(name: string, text: string): Promise<void> {
+    await this.run(['send-keys', '-l', '-t', name, text]);
+  }
+
   async capturePane(name: string): Promise<string> {
     return this.run(['capture-pane', '-p', '-t', name]);
   }
