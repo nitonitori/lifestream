@@ -5,12 +5,13 @@ import { ControlPlane } from '../../src/domain/control-plane.js';
 import { FakeClock, FakeTmux, FakeClaudeHome, InMemoryManagedRegistry, InMemoryDeviceStore } from '../fakes/index.js';
 
 async function app() {
+  const tmux = new FakeTmux();
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeClaudeHome(), registry: new InMemoryManagedRegistry(),
+    tmux, home: new FakeClaudeHome(), registry: new InMemoryManagedRegistry(),
     clock: new FakeClock(), claudeBin: 'claude', tmuxSocket: 's', newSessionId: () => 'id-1234abcd',
   });
   const fastify = await buildHttp({ plane, token: 'secret', sse: new SseHub(), devices: new InMemoryDeviceStore() });
-  return { fastify, plane };
+  return { fastify, plane, tmux };
 }
 
 describe('routes auth (C1,C2)', () => {
@@ -56,6 +57,21 @@ describe('mutations (C2)', () => {
   it('maps domain errors (404)', async () => {
     const { fastify } = await app();
     const r = await fastify.inject({ method: 'POST', url: '/api/sessions/nope/messages', headers: { authorization: 'Bearer secret' }, payload: { text: 'x' } });
+    expect(r.statusCode).toBe(404);
+    expect(r.json().error.code).toBe('NOT_FOUND');
+  });
+  it('prompt answer returns 202 and reaches the plane literally', async () => {
+    const { fastify, tmux } = await app();
+    const h = { authorization: 'Bearer secret' };
+    const c = await fastify.inject({ method: 'POST', url: '/api/sessions', headers: h, payload: { cwd: '/w' } });
+    const id = c.json().sessionId;
+    const r = await fastify.inject({ method: 'POST', url: `/api/sessions/${id}/prompt`, headers: h, payload: { key: '2' } });
+    expect(r.statusCode).toBe(202);
+    expect(tmux.literal.at(-1)!.text).toBe('2');   // 字段错配会在这里暴露
+  });
+  it('prompt answer maps domain errors (404)', async () => {
+    const { fastify } = await app();
+    const r = await fastify.inject({ method: 'POST', url: '/api/sessions/nope/prompt', headers: { authorization: 'Bearer secret' }, payload: { key: '1' } });
     expect(r.statusCode).toBe(404);
     expect(r.json().error.code).toBe('NOT_FOUND');
   });

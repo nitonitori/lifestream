@@ -43,8 +43,9 @@ export class Tmux implements TmuxAdapter {
   }
 
   // send-keys -l 关掉键名查找、按字面 UTF-8 处理, 因此发不出 Escape/Up/Enter, 只能送字面字符。
+  // `--` 终止选项解析, 否则前导 `-` 的 text(如 "-R")会被 getopt 当 flag 吃掉。
   async sendLiteral(name: string, text: string): Promise<void> {
-    await this.run(['send-keys', '-l', '-t', name, text]);
+    await this.run(['send-keys', '-l', '-t', name, '--', text]);
   }
 
   async capturePane(name: string): Promise<string> {
