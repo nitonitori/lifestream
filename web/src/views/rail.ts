@@ -24,7 +24,7 @@ export function mountRail(store: Store<AppState>, cmds: SessionCommands): void {
 
     const list = [...s.sessions.values()];
     if (list.length === 0 && !s.agentEnabled) {
-      wrap.appendChild(el('div', { class: 'rail__empty', text: '还没有运行中的 Claude 会话。' }));
+      wrap.appendChild(el('div', { class: 'rail__empty', text: '还没有运行中的会话。' }));
       return;
     }
     for (const x of list) {

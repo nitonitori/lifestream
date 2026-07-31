@@ -1,4 +1,4 @@
-import type { PendingAction, SessionSummary } from '../../../src/domain/types';
+import type { Kernel, PendingAction, SessionSummary } from '../../../src/domain/types';
 
 export type StreamRef = { kind: 'messenger' } | { kind: 'session'; id: string };
 export const MESSENGER: StreamRef = { kind: 'messenger' };
@@ -79,7 +79,12 @@ export const statusLabel = (x: SessionSummary): string =>
 export const vitalOf = (x: SessionSummary): string =>
   !x.live ? 'external' : x.status === 'busy' ? 'busy' : x.status === 'idle' ? 'idle' : 'live';
 
-export const tagOf = (x: SessionSummary): string => x.controllable ? '可控' : x.live ? '外部' : '离线';
+const KERNEL_TAG: Record<Kernel, string> = {
+  claude: 'CC', qodercli: 'QCLI', qoderwork: 'QW', 'qoder-ide': 'QODER',
+};
+
+// 服务端是独立进程，版本可能比前端 bundle 新；多出的内核值回落成 CC 好过渲染 undefined。
+export const tagOf = (x: SessionSummary): string => KERNEL_TAG[x.kernel] ?? 'CC';
 
 export const isCurrent = (s: AppState, ref: StreamRef): boolean => {
   const cur = s.current;

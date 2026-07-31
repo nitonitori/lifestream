@@ -120,10 +120,15 @@ describe('selectors', () => {
     expect(vitalOf(S({ sessionId: 'x', status: 'unknown' }))).toBe('live');
   });
 
-  it('tagOf', () => {
-    expect(tagOf(S({ sessionId: 'x', controllable: true }))).toBe('可控');
-    expect(tagOf(S({ sessionId: 'x', controllable: false }))).toBe('外部');
-    expect(tagOf(S({ sessionId: 'x', controllable: false, live: false }))).toBe('离线');
+  it('tagOf 给出内核短标签', () => {
+    expect(tagOf(S({ sessionId: 'x', kernel: 'claude' }))).toBe('CC');
+    expect(tagOf(S({ sessionId: 'x', kernel: 'qodercli' }))).toBe('QCLI');
+    expect(tagOf(S({ sessionId: 'x', kernel: 'qoderwork' }))).toBe('QW');
+    expect(tagOf(S({ sessionId: 'x', kernel: 'qoder-ide' }))).toBe('QODER');
+  });
+
+  it('tagOf 不认识的内核回落到 CC', () => {
+    expect(tagOf(S({ sessionId: 'x', kernel: 'wat' as never }))).toBe('CC');
   });
 
   it('isCurrent 区分 messenger 与具体会话', () => {
