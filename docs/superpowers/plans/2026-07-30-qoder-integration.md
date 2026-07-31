@@ -28,6 +28,8 @@
 - `src/config.ts` 的 `qoder` 配置块在 Task 4 一次加全（5 个字段：`cliBin`、`cliPermissionMode`、`qoderHome`、`qoderWorkHome`、`heartbeatTtlMs`），Task 5 / Task 6 只读不改 —— 不要因为「本任务只用到 2 个字段」就把它拆开。
 - **测试环境没有 DOM**（`vitest.config.ts` 是 `environment: 'node'`，仓库无 jsdom 依赖）。`web/src/components/*.ts`、`web/src/views/*.ts` 的改动只能靠 `tsc -p tsconfig.web.json` + Task 8 的真实浏览器验证兜底，**不要为它们发明 DOM 测试**，也不要为此引入 jsdom。
 - 所有 node / tsc / vitest 一律用绝对路径 `/Users/l/.nvm/versions/node/v24.18.0/bin/node`（规避 nvm 陷阱）。
+- 本计划各任务里裸写的 `tsc --noEmit` 一律**读作** `tsc --noEmit -p tsconfig.test.json`：Task 2 起 `test/` 才纳入类型检查，
+  裸形式只编 `src/`（`tsconfig.json` 的 `rootDir` 是 `src`），会漏掉测试文件的类型错误。Web 侧另跑 `-p tsconfig.web.json`。
 - 工作目录是开发实例 `~/dev-ai/lifestream`，分支 `main`。部署实例 `~/apps/lifestream`（8787）只在 Task 8 才碰。
 - 用中文写提交信息、日志文案与文档。
 - **本计划的写法约定**：新增文件给出完整代码；对既有文件的**搬迁式**改动逐条给出替换规则（哪个表达式换成哪个），因为那些 body 里有本计划不打算改变的既有逻辑 —— 动手前先把该文件整份读一遍。
@@ -1239,7 +1241,9 @@ git commit -m "refactor(control): ControlPlane 改吃 AgentSource[]，命令行�
 - Create: `test/unit/segments.test.ts`
 - Modify: `src/config.ts`（加 `qoder` 块，5 个字段一次加全）
 - Modify: `src/cli.ts`（`buildPlane` 加第二个 source）
+- Modify: `src/domain/pending.ts:5`（`describeAction('create')` 带上 kernel）
 - Test: `test/unit/sources.test.ts`（追加 `QoderCliSource` 段）
+- Test: `test/unit/pending.test.ts`（新建）
 
 **Interfaces:**
 - Consumes: Task 2 的 `CliSource` / `isPidAlive` / `safeReaddir`；Task 3 的 `Deps.sources`
@@ -1478,7 +1482,48 @@ export class QoderCliSource extends CliSource {
       new QoderCliSource(cfg.qoder.qoderHome, cfg.qoder.cliBin, cfg.qoder.cliPermissionMode),
 ```
 
-- [ ] **Step 9: 跑测试确认通过**
+- [ ] **Step 9: IM 建会话确认文案带上 kernel**
+
+`kernel` 从 Task 3 起就已经是 `propose_create_session` 的合法参数（`src/mcp/control-mcp.ts:85`），
+但在本任务之前只有一个可控内核，所以文案不显示 kernel 无所谓。`qodercli` 上线后，
+用户在钉钉里看到的确认只有「在 /x 新建会话」—— 不知道自己批准的是哪个产品。
+
+新建 `test/unit/pending.test.ts`：
+
+```ts
+import { describe, expect, test } from 'vitest';
+import { describeAction } from '../../src/domain/pending.js';
+
+describe('describeAction', () => {
+  test('create 不带 kernel 时不显示内核（默认 claude）', () => {
+    expect(describeAction('create', { cwd: '/w' })).toBe('在 /w 新建会话');
+  });
+  test('create 带 kernel 时显示内核', () => {
+    expect(describeAction('create', { cwd: '/w', kernel: 'qodercli' })).toBe('在 /w 新建 qodercli 会话');
+  });
+  test('create 的 initialPrompt 仍附在末尾', () => {
+    expect(describeAction('create', { cwd: '/w', kernel: 'qodercli', initialPrompt: 'go' }))
+      .toBe('在 /w 新建 qodercli 会话，首条: go');
+  });
+});
+```
+
+跑一次确认失败（第 2、3 条红）：
+
+```bash
+/Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run test/unit/pending.test.ts
+```
+
+再把 `src/domain/pending.ts:5` 那行换成：
+
+```ts
+  if (kind === 'create') return `在 ${params.cwd} 新建${params.kernel ? ' ' + params.kernel : ''}会话${params.initialPrompt ? '，首条: ' + params.initialPrompt : ''}`;
+```
+
+重跑该文件确认 3 条全绿。**不要**给 `describeAction` 加 kernel → 显示名的映射表（Global Constraints
+禁止任何 kernel 映射表）—— 直接打印 kernel 字面量。
+
+- [ ] **Step 10: 跑测试确认通过**
 
 ```bash
 /Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run test/unit/sources.test.ts
@@ -1487,7 +1532,7 @@ export class QoderCliSource extends CliSource {
 ```
 Expected: 全 PASS。
 
-- [ ] **Step 10: 提交**
+- [ ] **Step 11: 提交**
 
 ```bash
 git add -A
