@@ -32,9 +32,9 @@ export function mountConsole(
   const transcript = mountTranscript();
   const composer = mountComposer(text => void send(text));
 
-  let messengerTimer: number | undefined;
+  let messengerTimer: ReturnType<typeof setInterval> | undefined;
   // promptTimer 只由下方最后一条订阅读写 —— 别在其它地方清它，否则又要靠订阅注册顺序才正确。
-  let promptTimer: number | undefined;
+  let promptTimer: ReturnType<typeof setInterval> | undefined;
   const stopMessengerPoll = () => {
     clearInterval(messengerTimer); messengerTimer = undefined;
   };

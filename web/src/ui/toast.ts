@@ -1,6 +1,6 @@
 import { $ } from './dom';
 
-let timer: number | undefined;
+let timer: ReturnType<typeof setTimeout> | undefined;
 
 export function toast(msg: string): void {
   const t = $('toast');

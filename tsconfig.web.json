@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["web/src/**/*"]
+  "include": ["web/src/**/*", "test/unit/web-*.test.ts"]
 }
