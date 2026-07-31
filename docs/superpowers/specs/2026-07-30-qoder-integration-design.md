@@ -208,7 +208,7 @@ run 文件是该进程自己创建的，所以「进程启动时刻早于 run �
 `lastActivity` 一律取 transcript 末条消息时间戳（沿用现有 `activityMap`），不改语义。
 
 **不做时间窗裁剪。** 早期草案里 QoderWork 打算用"最近 7 天有 run"来裁剪列表，理由是 pid 恒为
-app pid、无法区分死活。改用心跳后这个补丁不需要了：心跳的 TTL 与 `Stop` 事件本身就是生命周期信号，
+app pid、无法区分死活。改用心跳后这个补丁不需要了：心跳的 TTL 本身就是生命周期信号，
 不必再拿 run 的时间戳猜。
 
 ## 5. 两个桌面产品的心跳 hook
@@ -232,8 +232,13 @@ app pid、无法区分死活。改用心跳后这个补丁不需要了：心跳�
 
 推导规则（两个产品共用）：
 
-- `live` = 最近心跳在 30 分钟内（配置项 `heartbeatTtlMs`）且最后事件不是 `Stop`
-- `busy` = 最后事件是 `PreToolUse`；`idle` = `PostToolUse` / `PostToolUseFailure` / `Stop`
+- `live` = 最近心跳在 30 分钟内（配置项 `heartbeatTtlMs`）
+- `busy` = 最后事件是 `PreToolUse`；`idle` = 其余全部事件（含 `Stop`）
+
+> 实施期修正：`live` 原本还要求「最后事件不是 `Stop`」。但 `Stop` 是**每轮对话结束**都触发的，
+> 不是会话结束；而桌面会话永不进 managed 注册表，`session-discovery` 的 id 集合是
+> `live ∪ managed`，于是一个开着却空闲的 Qoder 窗口会在答完一轮后从列表里整条消失。
+> 用户裁定：`Stop` 只改状态（idle），不改存活，存活只按 TTL 判。
 
 **`~/.qoder/settings.json` 是 qodercli 与 Qoder IDE 共用的**，装给 IDE 的 hook 对 qodercli 会话
 也会触发，心跳目录无法区分二者。因此 `QoderIdeSource` 额外要求该 sessionId 在
@@ -342,7 +347,7 @@ MCP `get_session_prompt`、编号选项按钮（onclick 改走 §7.1 的字面�
 - `qodercli` 存活三道闸各自能挡住对应情形：开机前写的 run 日志、已死 pid、pid 活着但进程名不匹配、
   pid 活着且名字也对但启动晚于 run 文件（同开机内复用；测试用「先建文件 → 等 1.1s → 起子进程 → rename
   带上其 pid」复现，`rename` 保留 birthtime）。
-- 心跳文件解析：TTL 内/外、`Stop` 后判 idle 且不 live。
+- 心跳文件解析：TTL 内/外、`Stop` 后判 idle 但仍 live。
 - `QoderIdeSource` 的转录形状过滤：只有 `transcript/` 下有转录的心跳才算 IDE 会话；
   `QoderWorkSource` 不过滤（无转录的新会话也列出）。
 - `isControllable` 守卫：4 个 source 里只有 2 个为真。
@@ -378,7 +383,8 @@ MCP `get_session_prompt`、编号选项按钮（onclick 改走 §7.1 的字面�
 ## 10. 待实测项与风险
 
 1. **心跳只在事件时刷新**，hook 协议没有周期性心跳。30 分钟 TTL 内一个真的已关闭的会话会被显示为
-   live（除非它最后一个事件是 `Stop`）。这是精度上限，不是 bug，两个桌面产品同样受限。
+   live。这是精度上限，不是 bug，两个桌面产品同样受限。（不能拿 `Stop` 来收口 —— 它是每轮对话
+   结束都触发的，见 §5。）
 2. **没装 hook 的桌面产品在列表里完全不出现**（哪怕有几百条历史转录）。这是显式安装换来的确定性，
    `lifestream hooks status` 是排查入口，`docs/install.md` 要写明这一点。
 3. **Qoder 版本漂移** —— 本设计基于 QoderWork 0.9.12、qodercli 1.1.5/1.1.8（另有 1.0.45 打包在

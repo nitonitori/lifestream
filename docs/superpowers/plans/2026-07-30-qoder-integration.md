@@ -19,7 +19,10 @@
 - `src/domain/transcript-parser.ts` **一行不改**。
 - 心跳 hook 事件名，五个，精确：`SessionStart`、`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`Stop`。
 - 心跳目录：`~/.lifestream/heartbeats/qoder-ide/`、`~/.lifestream/heartbeats/qoderwork/`（= `join(cfg.paths.stateDir, 'heartbeats', target)`）。心跳文件名 `<sessionId>.json`，载荷 `{ sessionId, cwd, event, ts }`。
-- 心跳推导：`live` = `now - ts <= ttlMs` 且 `event !== 'Stop'`；`busy` = `event === 'PreToolUse'`，其余 `idle`。`heartbeatTtlMs` 默认 `30 * 60 * 1000`。
+- 心跳推导：`live` = `now - ts <= ttlMs`；`busy` = `event === 'PreToolUse'`，其余 `idle`。`heartbeatTtlMs` 默认 `30 * 60 * 1000`。
+  （实施期修正：原定 `live` 还要求 `event !== 'Stop'`。但 `Stop` 是**每轮对话结束**都会触发的，而桌面会话永不进
+  managed 注册表 —— 那样一个开着却空闲的窗口会整条从会话列表消失、只在跑的那几十秒可见。用户裁定改为只按
+  TTL 判存活，已关掉的窗口靠 TTL 自愈。）
 - settings 注入目标：`~/.qoder/settings.json`（qoder-ide）、`~/.qoderwork/settings.json`（qoderwork）。**必须**幂等合并、先备份到 `<settings>.lifestream-backup-<ts>`、只增删自己那一项（这两个文件里住着 r2c / loongsuite 的 hook），`--dry-run` 不落盘。绝不在 `serve` / daemon 启动路径里静默注入。
 - 轮询节拍：可控 source 组 2000ms，只读 source 组 5000ms。
 - 前端不认识 kernel 语义：判断「该产品能不能接管」只看 `SessionSummary.adoptable: boolean`，不得读 `kernel` 值。
@@ -2023,6 +2026,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+// 实施期修正：这个载荷类型与 Task 6 的 `Heartbeat`（`src/domain/heartbeat.ts`）字段完全相同，
+// 而它俩正是同一份落盘格式的写入方与读取方 —— 最终只留 `Heartbeat` 一个定义，本文件改成
+// `import type { Heartbeat } from '../domain/heartbeat.js'`（`import type` 编译后完全擦除，
+// hook 脚本仍零运行时依赖）。下面出现的 `HeartbeatPayload` 均按 `Heartbeat` 理解。
 export interface HeartbeatPayload { sessionId: string; cwd: string; event: string; ts: number }
 
 export function heartbeatPayload(raw: string, now: number): HeartbeatPayload | null {
@@ -2344,14 +2351,14 @@ describe('parseHeartbeat', () => {
 });
 
 describe('heartbeatVitals', () => {
-  test('TTL 内且不是 Stop 就算 live', () => {
+  test('TTL 内就算 live', () => {
     expect(heartbeatVitals(hb('PostToolUse', NOW - 1000), NOW, TTL).live).toBe(true);
   });
   test('超出 TTL 不算 live', () => {
     expect(heartbeatVitals(hb('PreToolUse', NOW - TTL - 1), NOW, TTL).live).toBe(false);
   });
-  test('最后事件是 Stop 就不算 live，且是 idle', () => {
-    expect(heartbeatVitals(hb('Stop'), NOW, TTL)).toEqual({ live: false, status: 'idle' });
+  test('Stop 只是一轮对话结束、不是会话结束：仍算 live，状态 idle', () => {
+    expect(heartbeatVitals(hb('Stop'), NOW, TTL)).toEqual({ live: true, status: 'idle' });
   });
   test('PreToolUse 判 busy', () => {
     expect(heartbeatVitals(hb('PreToolUse'), NOW, TTL).status).toBe('busy');
@@ -2390,14 +2397,14 @@ export function parseHeartbeat(text: string): Heartbeat | null {
   };
 }
 
-// hook 协议没有周期性心跳：心跳只在事件时刷新，所以 TTL 内一个已关闭的会话仍会显示为 live
-// （除非它最后一个事件是 Stop）。这是精度上限。
+// hook 协议没有周期性心跳：心跳只在事件时刷新，所以 TTL 内一个已关掉的窗口仍会显示为 live，
+// 这是精度上限。但不能拿 Stop 来收口 —— Stop 是每轮对话结束都触发的，把它当会话结束会让
+// 开着却空闲的窗口从列表里整条消失。
 export function heartbeatVitals(
   h: Heartbeat, now: number, ttlMs: number,
 ): { live: boolean; status: SessionStatus } {
-  const fresh = now - h.ts <= ttlMs;
   return {
-    live: fresh && h.event !== 'Stop',
+    live: now - h.ts <= ttlMs,
     status: h.event === 'PreToolUse' ? 'busy' : 'idle',
   };
 }
@@ -2451,11 +2458,18 @@ describe('QoderWorkSource', () => {
     });
   });
 
-  test('Stop 之后与超出 TTL 的都不列出', async () => {
+  test('超出 TTL 的不列出', async () => {
     const h = home(); const hb = join(home(), 'hb');
-    hbFile(hb, 'stopped', 'Stop');
     hbFile(hb, 'stale', 'PreToolUse', NOW - TTL - 1);
     expect(await mk(h, hb).readLiveSessions()).toEqual([]);
+  });
+
+  test('Stop 之后仍列出（一轮对话结束不等于会话结束），状态 idle', async () => {
+    const h = home(); const hb = join(home(), 'hb');
+    hbFile(hb, 'stopped', 'Stop');
+    const live = await mk(h, hb).readLiveSessions();
+    expect(live).toHaveLength(1);
+    expect(live[0]).toMatchObject({ sessionId: 'stopped', status: 'idle' });
   });
 
   test('没有转录的新会话也列出（不做转录过滤）', async () => {
