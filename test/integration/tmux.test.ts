@@ -21,8 +21,9 @@ describe('Tmux (integration)', () => {
   });
 
   it('sendLiteral 不追加 Enter（真 tmux 字节级）', async () => {
-    const name = NAME + '-lit';
-    const out = OUT + '-lit';
+    // 独立前缀: tmux 的 -t 按前缀解析, 若叫 NAME + '-lit' 则上一条测试的 hasSession(NAME) 会命中它。
+    const name = 'ls-lit-' + process.pid;
+    const out = `/tmp/ls-lit-out-${process.pid}`;
     try {
       await tmux.newSession(name, process.cwd(), ['sh', '-c', `cat >> ${out}`]);
       await tmux.sendLiteral(name, 'abc');
