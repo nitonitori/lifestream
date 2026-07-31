@@ -2278,8 +2278,14 @@ lifestream 自己的 hook，把心跳写到 lifestream 的状态目录。
 
 ### 已知精度上限
 
-hook 协议没有周期性心跳，心跳只在事件发生时刷新。因此一个已经关掉、但最后一个事件不是 `Stop`
-的会话，会在 30 分钟（`heartbeatTtlMs`）内继续显示为在线。两个桌面产品同样受限。
+hook 协议没有周期性心跳，心跳只在事件发生时刷新。因此一个已经关掉的会话，会在 30 分钟
+（`heartbeatTtlMs`）内继续显示为在线。两个桌面产品同样受限。
+
+不能拿 `Stop` 事件来提前收口：它是**每轮对话结束**都会触发的，不是会话结束。按它判死会让一个
+开着却空闲的窗口在答完一轮后从列表里整条消失。`Stop` 只把状态置为空闲。
+
+（实施期修正：本段与 `docs/install.md` 里原本还有一句「`heartbeatTtlMs` 由后续任务生效」，
+Task 6 已交付读取侧，该句已删。）
 
 ## Qoder CLI
 
@@ -2882,7 +2888,7 @@ Expected：
   `{"sessionId":"…","cwd":"/Users/l/…","event":"PreToolUse","ts":1785400000000}`。
 - Web 列表里对应会话 live，`PreToolUse` 期间显示忙、`PostToolUse` 后转空闲。
 - 一轮对话结束（Claude Code hook 协议的 `Stop`）后，`event` 变成 `Stop`，会话在列表里
-  转为**不 live**。
+  **仍然 live**、状态转空闲（实施期修正：`Stop` 是每轮对话结束都触发的，不是会话结束）。
 - `~/.qoder/heartbeats/qoder-ide/` 下**不该**出现纯 qodercli 会话（`~/.qoder/settings.json`
   是二者共用的，`QoderIdeSource.isOwnSession` 应把没有 `projects/*/transcript/` 转录的
   心跳滤掉）。验证方式：Step 7 起 qodercli 会话后，它的 sessionId 会出现在
