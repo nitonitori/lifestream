@@ -73,10 +73,8 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
   });
   app.post('/api/sessions/:id/messages', (req, reply) =>
     wrap(reply, async () => { await plane.sendMessage((req.params as any).id, (req.body as any).text); return { ok: true }; }, 202));
-  // 交互选择器：识别(只读)与远程按键应答。
+  // 交互选择器：只读识别；应答走 send 通道。
   app.get('/api/sessions/:id/prompt', (req, reply) => wrap(reply, () => plane.detectPrompt((req.params as any).id)));
-  app.post('/api/sessions/:id/keys', (req, reply) =>
-    wrap(reply, async () => { await plane.sendKeys((req.params as any).id, (req.body as any).keys); return { ok: true }; }, 202));
   app.post('/api/sessions', (req, reply) => wrap(reply, () => plane.createSession(req.body as any), 201));
   app.post('/api/sessions/:id/adopt', (req, reply) =>
     wrap(reply, () => plane.adoptSession((req.params as any).id, { force: (req.body as any)?.force }), 200));

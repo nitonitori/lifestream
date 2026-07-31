@@ -67,7 +67,7 @@ describe('sendMessage (B3)', () => {
   });
 });
 
-describe('detectPrompt / sendKeys / capturePane', () => {
+describe('detectPrompt / capturePane', () => {
   const PERMISSION_PANE = [
     '│ Bash command                                          │',
     '│ Do you want to proceed?                               │',
@@ -92,20 +92,11 @@ describe('detectPrompt / sendKeys / capturePane', () => {
     expect(await plane.detectPrompt(s.sessionId)).toBeNull();
   });
 
-  it('sendKeys records raw keys to the managed tmux', async () => {
-    const { plane, tmux } = make();
-    const s = await plane.createSession({ cwd: '/w' });
-    await plane.sendKeys(s.sessionId, ['2']);
-    expect(tmux.keys.at(-1)).toEqual({ name: 'lifestream-' + s.sessionId.slice(0, 8), keys: ['2'] });
-  });
-
-  it('capturePane/sendKeys throw NotControllable for external live and NotFound for unknown', async () => {
+  it('capturePane 对外部会话抛 NotControllable、对不存在会话抛 NotFound', async () => {
     const { plane, home } = make();
     home.live = [{ pid: 1, sessionId: 'ext', cwd: '/w', status: 'busy' }];
     await expect(plane.capturePane('ext')).rejects.toBeInstanceOf(NotControllableError);
-    await expect(plane.sendKeys('ext', ['1'])).rejects.toBeInstanceOf(NotControllableError);
     await expect(plane.detectPrompt('nope')).rejects.toBeInstanceOf(NotFoundError);
-    await expect(plane.sendKeys('nope', ['1'])).rejects.toBeInstanceOf(NotFoundError);
   });
 });
 

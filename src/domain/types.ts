@@ -44,7 +44,7 @@ export type PlaneEvent =
   | { type: 'session.removed'; sessionId: string }
   | { type: 'message'; sessionId: string; event: TranscriptEvent };
 
-export type PendingActionKind = 'send' | 'create' | 'adopt' | 'keys';
+export type PendingActionKind = 'send' | 'create' | 'adopt';
 export interface PendingAction {
   id: string;
   conversationId: string;

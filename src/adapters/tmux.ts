@@ -46,12 +46,6 @@ export class Tmux implements TmuxAdapter {
     return this.run(['capture-pane', '-p', '-t', name]);
   }
 
-  // 原始按键：直接 send-keys 到 pane，不追加 Enter。keys 作为独立 execFile 参数(无 shell)，无注入风险。
-  // tmux 可识别 'Up'/'Down'/'Enter'/'Escape' 等键名，及普通字符如 '1'/'2'。
-  async sendKeys(name: string, keys: string[]): Promise<void> {
-    await this.run(['send-keys', '-t', name, ...keys]);
-  }
-
   async killSession(name: string): Promise<void> {
     await this.run(['kill-session', '-t', name]);
   }

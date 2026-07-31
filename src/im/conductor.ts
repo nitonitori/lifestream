@@ -38,7 +38,6 @@ export class AgentConductor {
     if (a.kind === 'send') { await this.d.plane.sendMessage(a.params.sessionId as string, a.params.text as string); return `已发送到会话 ${a.params.sessionId}`; }
     if (a.kind === 'create') { const s = await this.d.plane.createSession(a.params as any); return `已创建会话 ${s.sessionId}`; }
     if (a.kind === 'adopt') { const s = await this.d.plane.adoptSession(a.params.sessionId as string, { force: a.params.force as boolean }); return `已接管会话 ${s.sessionId}`; }
-    if (a.kind === 'keys') { await this.d.plane.sendKeys(a.params.sessionId as string, a.params.keys as string[]); return `已向会话 ${a.params.sessionId} 发送按键`; }
     return '未知动作';
   }
 

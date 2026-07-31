@@ -2,7 +2,7 @@
 // 受控会话跑在 tmux 里，偶尔会停在一个 TUI 选择器上等键盘输入——权限框
 // (`Do you want to proceed? 1.Yes 2.No`) 或模型自发的 `AskUserQuestion` 多选菜单。
 // 本模块把 capture-pane 的纯文本解析成结构化提示；换其它内核时，替换本文件的解析与键位语义即可，
-// 领域核心（capturePane/sendKeys）与路由/UI 均通用、不受影响。
+// 领域核心（capturePane）与路由/UI 均通用、不受影响。
 
 export interface InteractivePrompt {
   kind: 'permission' | 'select';

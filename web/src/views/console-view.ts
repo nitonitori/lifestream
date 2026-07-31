@@ -142,10 +142,10 @@ export function mountConsole(
   };
 
   // ---------- 交互选择器 ----------
-  const sendKeys = async (id: string, keys: string[]) => {
-    try { await api.sendKeys(id, keys); }
-    catch (e) { toast(errText(e, '按键发送失败')); return; }
-    toast('已发送: ' + keys.join(' '));
+  const answerPrompt = async (id: string, key: string) => {
+    try { await api.sendSessionMessage(id, key); }
+    catch (e) { toast(errText(e, '发送失败')); return; }
+    toast('已选择 ' + key);
     setTimeout(() => void loadPrompt(id), 600);
   };
 
@@ -159,7 +159,7 @@ export function mountConsole(
     const s = store.getState();
     if (!isCurrent(s, { kind: 'session', id }) || !sessionOf(s, id)?.controllable) return;
     clear(promptSlot);
-    if (p && p.options.length > 0) promptSlot.appendChild(promptBox(p, keys => void sendKeys(id, keys)));
+    if (p && p.options.length > 0) promptSlot.appendChild(promptBox(p, key => void answerPrompt(id, key)));
   };
 
   // ---------- 生命周期 ----------

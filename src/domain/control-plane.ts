@@ -100,11 +100,6 @@ export class ControlPlane extends EventEmitter {
     return parseInteractivePrompt(await this.capturePane(id));
   }
 
-  // 向受控会话发送原始按键(应答选择器)，如 ['2'] / ['Down'] / ['Enter']。
-  async sendKeys(id: string, keys: string[]): Promise<void> {
-    await this.d.tmux.sendKeys(await this.managedTmuxName(id), keys);
-  }
-
   async createSession(opts: { cwd: string; name?: string; model?: string; permissionMode?: string; initialPrompt?: string }): Promise<SessionSummary> {
     const id = this.d.newSessionId();
     const name = tmuxNameFor(id);

@@ -32,7 +32,6 @@ export function makeTools(d: McpDeps): ToolMap {
       send_to_session: async (a) => { await d.plane.sendMessage(a.sessionId, a.text); return { ok: true }; },
       create_session: (a) => d.plane.createSession(a),
       adopt_session: (a) => d.plane.adoptSession(a.sessionId, { force: a.force }),
-      send_keys: async (a) => { await d.plane.sendKeys(a.sessionId, a.keys); return { ok: true }; },
     };
   }
 
@@ -53,7 +52,6 @@ export function makeTools(d: McpDeps): ToolMap {
     propose_send_to_session: (a) => stage('send', { sessionId: a.sessionId, text: a.text }),
     propose_create_session: (a) => stage('create', a),
     propose_adopt_session: (a) => stage('adopt', { sessionId: a.sessionId, force: a.force }),
-    propose_send_keys: (a) => stage('keys', { sessionId: a.sessionId, keys: a.keys }),
   };
 }
 
@@ -77,12 +75,10 @@ export async function buildMcpServer(d: McpDeps): Promise<any> {
     server.tool('send_to_session', { sessionId: z.string(), text: z.string() }, wrap(tools.send_to_session));
     server.tool('create_session', { cwd: z.string(), name: z.string().optional(), model: z.string().optional(), initialPrompt: z.string().optional() }, wrap(tools.create_session));
     server.tool('adopt_session', { sessionId: z.string(), force: z.boolean().optional() }, wrap(tools.adopt_session));
-    server.tool('send_keys', { sessionId: z.string(), keys: z.array(z.string()) }, wrap(tools.send_keys));
   } else {
     server.tool('propose_send_to_session', { sessionId: z.string(), text: z.string() }, wrap(tools.propose_send_to_session));
     server.tool('propose_create_session', { cwd: z.string(), name: z.string().optional(), model: z.string().optional(), initialPrompt: z.string().optional() }, wrap(tools.propose_create_session));
     server.tool('propose_adopt_session', { sessionId: z.string(), force: z.boolean().optional() }, wrap(tools.propose_adopt_session));
-    server.tool('propose_send_keys', { sessionId: z.string(), keys: z.array(z.string()) }, wrap(tools.propose_send_keys));
   }
   return server;
 }
