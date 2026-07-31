@@ -190,9 +190,20 @@ export function isControllable(s: AgentSource): s is ControllableSource {
 
 1. run 日志 `mtime` 必须晚于本次开机（`Date.now() - os.uptime() * 1000`）；
 2. `kill(pid, 0)` 存活；
-3. `ps -p <pid> -o comm=` 的 basename 等于本 source 的 bin 的 basename。
+3. **归属闸**：`ps -p <pid> -o lstart=,comm=` 的 comm basename 等于本 source 的 bin 的 basename，
+   且**进程启动时刻 ≤ run 文件的 birthtime**。
 
-第 3 道逐个 pid 查而不批量（`ps -p a,b,c` 只要有一个 pid 越界就整批退出 1），`ps` 自身失败按不存活处理。
+第 3 道为什么要比启动时刻：闸 1 只挡跨开机的复用。老会话退出后它的 run 文件 mtime 停在最后一次写入
+（仍晚于开机），若该 pid 在**同一次开机内**被另一个 qodercli 复用，前两道加纯进程名核对会全部放过。
+run 文件是该进程自己创建的，所以「进程启动时刻早于 run 文件创建时刻」是精确判据 —— 被复用的新进程
+必然启动于老 run 文件之后。这不是理论风险：实施期在真实 `~/.qoder` 上观察到 pid 26239（07-27 的 run 日志）
+四天后又活了，已是另一个进程。
+
+实现细节（均已实测）：`-o lstart=,comm=` 的字段顺序不能反 —— `ps` 只有最后一列不截断，comm 在前会被
+截到 16 字符；必须 `LC_ALL=C`，默认 locale 下 `lstart` 输出中文（`五  7月/31 …`）无法 `Date.parse`；
+`lstart` 精度是秒且向下取整，故真实会话恒满足「启动 ≤ birthtime」，不需要容差。
+第 3 道逐个 pid 查而不批量（`ps -p a,b,c` 只要有一个 pid 越界就整批退出 1），`ps` 自身失败按不存活处理，
+`ps` 路径写死 `/bin/ps`（launchd 下 PATH 被裁剪时 `ps` 解析失败会让所有 qodercli 会话静默消失）。
 
 `lastActivity` 一律取 transcript 末条消息时间戳（沿用现有 `activityMap`），不改语义。
 
@@ -328,7 +339,9 @@ MCP `get_session_prompt`、编号选项按钮（onclick 改走 §7.1 的字面�
 - 每个 source 的 `sessionIdForPath` 归属：`~/.qoder/projects` 下平铺 vs `transcript/` 的分流、
   Quest 的 `task-*` 名、非 jsonl 路径返回 `null`。
 - `session.config.loaded` 解析出 `project_root` 作为 cwd（取第一条；无则 cwd 落成空串）。
-- `qodercli` 存活三道闸各自能挡住对应情形：开机前写的 run 日志、已死 pid、pid 活着但进程名不匹配。
+- `qodercli` 存活三道闸各自能挡住对应情形：开机前写的 run 日志、已死 pid、pid 活着但进程名不匹配、
+  pid 活着且名字也对但启动晚于 run 文件（同开机内复用；测试用「先建文件 → 等 1.1s → 起子进程 → rename
+  带上其 pid」复现，`rename` 保留 birthtime）。
 - 心跳文件解析：TTL 内/外、`Stop` 后判 idle 且不 live。
 - `QoderIdeSource` 的转录形状过滤：只有 `transcript/` 下有转录的心跳才算 IDE 会话；
   `QoderWorkSource` 不过滤（无转录的新会话也列出）。

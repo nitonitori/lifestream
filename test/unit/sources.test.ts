@@ -147,6 +147,9 @@ describe('QoderCliSource', () => {
     await new Promise(r => setTimeout(r, 1100));
     const child = spawn('/bin/sleep', ['60']);
     try {
+      // spawn 失败时 child.pid 是 undefined，文件名会变成 -pundefined 而被 pidFromRunName 挡掉
+      // —— 那样这条用例就算归属闸失效也照样通过（假绿），故先钉住确实拿到了 pid。
+      expect(child.pid).toBeGreaterThan(0);
       renameSync(p, p.replace('-p1.jsonl', `-p${child.pid}.jsonl`));
       const live = await new QoderCliSource(h, 'sleep').readLiveSessions();
       expect(live).toEqual([]);

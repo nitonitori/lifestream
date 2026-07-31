@@ -1342,9 +1342,11 @@ export function parseSegments(lines: string[]): { cwd?: string } {
     let o: any;
     try { o = JSON.parse(line); } catch { continue; }
     const type = typeof o?.type === 'string' ? o.type : '';
-    // 取第一条 session.config.loaded：run 内 project_root 不变，首条即可，后续不覆盖。
-    if (cwd === undefined && type === 'session.config.loaded' && typeof o?.data?.project_root === 'string') {
+    // 取到第一条 session.config.loaded 就停：run 内 project_root 不变，而真实 run 已有
+    // 49KB / 143 行且 2s 一轮，没必要每轮把整个文件逐行 JSON.parse。
+    if (type === 'session.config.loaded' && typeof o?.data?.project_root === 'string') {
       cwd = o.data.project_root;
+      break;
     }
   }
   return { cwd };
@@ -1449,6 +1451,9 @@ describe('QoderCliSource', () => {
     await new Promise(r => setTimeout(r, 1100));
     const child = spawn('/bin/sleep', ['60']);
     try {
+      // spawn 失败时 child.pid 是 undefined，文件名会变成 -pundefined 而被 pidFromRunName 挡掉
+      // —— 那样这条用例就算归属闸失效也照样通过（假绿），故先钉住确实拿到了 pid。
+      expect(child.pid).toBeGreaterThan(0);
       renameSync(p, p.replace('-p1.jsonl', `-p${child.pid}.jsonl`));
       const live = await new QoderCliSource(h, 'sleep').readLiveSessions();
       expect(live).toEqual([]);
@@ -1571,8 +1576,8 @@ export class QoderCliSource extends CliSource {
 
 三道闸的顺序不能调整：`isPidAlive` 必须在 `pidOwnsRun` 之前（`ps` 是子进程，且已死/越界的 pid 先挡掉才不浪费 spawn）。
 
-`src/domain/segments.ts` 里取到 cwd 之后要 `break`：只需要第一条 `session.config.loaded`，而真实 run
-已有 49KB / 143 行且 2s 一轮，没必要每轮把整个文件逐行 `JSON.parse`（语义不变，原本就是「首条胜出」）。
+`Number.isNaN(startMs)` 与 `tok.length < 6` 两处判断是承重的，别在后续「简化」时删掉：`NaN > x` 恒为
+`false`，少了前者会让 `ps` 解析失败**放行**；后者同时承担了 comm 取空的防护。
 
 若 `LiveSession` 还有别的必填字段，按 `src/domain/types.ts` 补齐（参照 `session-discovery.ts` 里 `toLiveSession` 的返回值）。
 
