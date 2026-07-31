@@ -15,6 +15,7 @@ export function parseSegments(lines: string[]): { cwd?: string } {
     // 取第一条 session.config.loaded：run 内 project_root 不变，首条即可，后续不覆盖。
     if (cwd === undefined && type === 'session.config.loaded' && typeof o?.data?.project_root === 'string') {
       cwd = o.data.project_root;
+      break;
     }
   }
   return { cwd };

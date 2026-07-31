@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdtempSync, mkdirSync, renameSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
@@ -133,6 +133,22 @@ describe('QoderCliSource', () => {
     ]);
     const live = await new QoderCliSource(h, 'qodercli').readLiveSessions();
     expect(live).toEqual([]);
+  });
+
+  test('pid 活着、名字也对，但进程启动晚于 run 文件创建，不算 live（同开机内 pid 复用防护）', async () => {
+    const h = home();
+    // 先建 run 文件（占位 pid），等过 1s（ps lstart 精度是秒），再起子进程并把文件改名带上它的 pid。
+    // rename 保留 birthtime，于是「文件先创建、进程后启动」这个幽灵场景被精确复现。
+    const p = seed(h, 'ghost', '2026-07-30T16-31-03-gggg-p1', [
+      JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/x' } }),
+    ]);
+    await new Promise(r => setTimeout(r, 1100));
+    const child = spawn('/bin/sleep', ['60']);
+    try {
+      renameSync(p, p.replace('-p1.jsonl', `-p${child.pid}.jsonl`));
+      const live = await new QoderCliSource(h, 'sleep').readLiveSessions();
+      expect(live).toEqual([]);
+    } finally { child.kill(); }
   });
 
   test('run 日志在本次开机之前写的，不算 live（pid 复用防护）', async () => {
