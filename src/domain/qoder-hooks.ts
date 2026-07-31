@@ -1,6 +1,8 @@
 import { join } from 'node:path';
+import type { Kernel } from './types.js';
 
-export type HookTarget = 'qoder-ide' | 'qoderwork';
+// 心跳目录按 target 分，而读取方按 kernel 找目录：绑上 Extract，Kernel 改名时这里编译期就炸。
+export type HookTarget = Extract<Kernel, 'qoder-ide' | 'qoderwork'>;
 export const HOOK_TARGETS: HookTarget[] = ['qoder-ide', 'qoderwork'];
 
 export const HEARTBEAT_EVENTS = [

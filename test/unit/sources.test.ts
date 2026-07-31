@@ -227,11 +227,35 @@ describe('QoderWorkSource', () => {
     });
   });
 
-  test('Stop 之后与超出 TTL 的都不列出', async () => {
+  test('超出 TTL 的不列出', async () => {
     const h = home(); const hb = join(home(), 'hb');
-    hbFile(hb, 'stopped', 'Stop');
     hbFile(hb, 'stale', 'PreToolUse', NOW - TTL - 1);
     expect(await mk(h, hb).readLiveSessions()).toEqual([]);
+  });
+
+  test('Stop 之后仍列出（一轮对话结束不等于会话结束），状态 idle', async () => {
+    const h = home(); const hb = join(home(), 'hb');
+    hbFile(hb, 'stopped', 'Stop');
+    const live = await mk(h, hb).readLiveSessions();
+    expect(live).toHaveLength(1);
+    expect(live[0]).toMatchObject({ sessionId: 'stopped', status: 'idle' });
+  });
+
+  test('心跳目录里的非 .json 文件被忽略', async () => {
+    const h = home(); const hb = join(home(), 'hb');
+    hbFile(hb, 'w1', 'PostToolUse');
+    mkdirSync(hb, { recursive: true });
+    writeFileSync(join(hb, 'w2.txt'),
+      JSON.stringify({ sessionId: 'w2', cwd: '/Users/l/dev/foo', event: 'PostToolUse', ts: NOW }));
+    expect((await mk(h, hb).readLiveSessions()).map(x => x.sessionId)).toEqual(['w1']);
+  });
+
+  test('单个心跳文件内容坏掉只跳过它，不影响同目录其它会话', async () => {
+    const h = home(); const hb = join(home(), 'hb');
+    hbFile(hb, 'good', 'PostToolUse');
+    mkdirSync(hb, { recursive: true });
+    writeFileSync(join(hb, 'bad.json'), 'boom');
+    expect((await mk(h, hb).readLiveSessions()).map(x => x.sessionId)).toEqual(['good']);
   });
 
   test('没有转录的新会话也列出（不做转录过滤）', async () => {

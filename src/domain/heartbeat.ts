@@ -14,14 +14,14 @@ export function parseHeartbeat(text: string): Heartbeat | null {
   };
 }
 
-// hook 协议没有周期性心跳：心跳只在事件时刷新，所以 TTL 内一个已关闭的会话仍会显示为 live
-// （除非它最后一个事件是 Stop）。这是精度上限。
+// hook 协议没有周期性心跳：心跳只在事件时刷新，所以 TTL 内一个已关掉的窗口仍会显示为 live，
+// 这是精度上限。但不能拿 Stop 来收口 —— Stop 是每轮对话结束都触发的，把它当会话结束会让
+// 开着却空闲的窗口从列表里整条消失。
 export function heartbeatVitals(
   h: Heartbeat, now: number, ttlMs: number,
 ): { live: boolean; status: SessionStatus } {
-  const fresh = now - h.ts <= ttlMs;
   return {
-    live: fresh && h.event !== 'Stop',
+    live: now - h.ts <= ttlMs,
     status: h.event === 'PreToolUse' ? 'busy' : 'idle',
   };
 }

@@ -19,17 +19,21 @@ describe('parseHeartbeat', () => {
   test('非 JSON 返回 null', () => {
     expect(parseHeartbeat('boom')).toBeNull();
   });
+  test('缺 cwd 落成空串、缺 event 落成 unknown', () => {
+    expect(parseHeartbeat(JSON.stringify({ sessionId: 's', ts: NOW })))
+      .toEqual({ sessionId: 's', cwd: '', event: 'unknown', ts: NOW });
+  });
 });
 
 describe('heartbeatVitals', () => {
-  test('TTL 内且不是 Stop 就算 live', () => {
+  test('TTL 内就算 live', () => {
     expect(heartbeatVitals(hb('PostToolUse', NOW - 1000), NOW, TTL).live).toBe(true);
   });
   test('超出 TTL 不算 live', () => {
     expect(heartbeatVitals(hb('PreToolUse', NOW - TTL - 1), NOW, TTL).live).toBe(false);
   });
-  test('最后事件是 Stop 就不算 live，且是 idle', () => {
-    expect(heartbeatVitals(hb('Stop'), NOW, TTL)).toEqual({ live: false, status: 'idle' });
+  test('Stop 只是一轮对话结束、不是会话结束：仍算 live，状态 idle', () => {
+    expect(heartbeatVitals(hb('Stop'), NOW, TTL)).toEqual({ live: true, status: 'idle' });
   });
   test('PreToolUse 判 busy', () => {
     expect(heartbeatVitals(hb('PreToolUse'), NOW, TTL).status).toBe('busy');
