@@ -259,7 +259,33 @@ lifestream hooks status
 `Enter` 落在已空的输入框上，无副作用。
 
 而 `parseInteractivePrompt` 只识别编号块（`/^\s*[❯>]?\s*(\d+)\.\s+(.+?)\s*$/`），凡能被识别的
-提示框必然带数字快捷键，方向键行按构造就到不了。所以保留识别、应答改走既有 send 通道。
+提示框必然带数字快捷键，方向键行按构造就到不了。所以保留识别、应答改走 §7.1 的字面通道。
+
+### 7.1 应答走 `send-keys -l`（字面字符），不带回车
+
+早先草案让应答借用 `sendText`，代价是尾部多一个 `Enter`（旧的原始按键通道不发）。实测确认存在
+不带回车的直接发送，`man tmux`（3.4）给出两条原语：`send-keys -l` "disables key name lookup and
+processes the keys as literal UTF-8 characters"；`paste-buffer` 不带 `-p` 时不插 bracketed-paste
+转义码。在隔离 socket（`-L lskeyprobe`）上用 raw-mode stdin 记录器测三条路径：
+
+```
+32     ← send-keys -l '2'
+32     ← load-buffer + paste-buffer -d（不发 Enter）
+32     ← 现在的 sendText
+0d     ←    sendText 尾部那个独立的 send-keys Enter
+```
+
+`0x0d` 完全来自第三条独立命令；`send-keys -l` 一次 exec 只送 `0x32`，还不需要临时 buffer，因此选它。
+
+**这不会重新打开被砍掉的原始按键通道**：`-l` 关掉键名查找，`Escape` / `Up` / `Enter` 都发不出去
+（会变成字面量 `E`,`s`,`c`,`a`,`p`,`e`），它是严格更窄的原语，只能送字面字符。
+
+落地面：`TmuxAdapter.sendLiteral(name, text)` → `send-keys -l -t <name> <text>`；
+`ControlPlane.answerPrompt(id, key)` 走既有 `managedTmuxName` 守卫；
+`POST /api/sessions/:id/prompt {key}` 与 `GET` 同址对称；Web 编号按钮调它。
+
+IM 侧不新增面：`propose_send_to_session` 保持原样（§7 已实测尾随 `Enter` 落在已空的输入框上无副
+作用），不为此加回 `PendingActionKind` 或 MCP 工具。
 
 删除清单：
 
@@ -275,7 +301,7 @@ lifestream hooks status
 - 以上各项对应的测试
 
 保留：`parseInteractivePrompt`、`ControlPlane.detectPrompt`、`GET /api/sessions/:id/prompt`、
-MCP `get_session_prompt`、编号选项按钮（onclick 改走 send 通道）。
+MCP `get_session_prompt`、编号选项按钮（onclick 改走 §7.1 的字面通道）。
 
 唯一真正失去的是 `Esc`（中断跑飞的 turn）。权限框永远提供编号的 "No"，真需要中断时另开一个
 专用接口比留一整条原始按键通道干净。

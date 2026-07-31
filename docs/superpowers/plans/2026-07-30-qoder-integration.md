@@ -183,6 +183,169 @@ git commit -m "refactor(control): 砍掉原始按键通道，编号选项改走 
 
 ---
 
+### Task 1 修订 A：应答改走 `send-keys -l` 字面通道
+
+**为什么有这个修订：** Task 1 的评审指出「借用 send 通道后，应答尾部多了一个旧通道不发的 `Enter`」。
+这是设计 §7 授权的行为，因此上报给人类决策；决定是**调研并改用不带回车的直接发送**。结论与实测字节
+序列已写进设计文档 **§7.1**：`send-keys -l` 只送一个字面字节，且因为关掉键名查找而**发不出**
+`Escape` / `Up` / `Enter`，是严格更窄的原语，不会把 Task 1 砍掉的原始按键通道重新打开。
+
+上面 Task 1 的 Step 1-8 是已执行并提交的历史记录（commit `eb04fd9`），不要回滚；本修订在其之上做增量。
+
+**Files:**
+- Modify: `src/ports/index.ts:10-11`（在 `sendText` 下加 `sendLiteral`）
+- Modify: `src/adapters/tmux.ts:38-43`（在 `sendText` 下加 `sendLiteral`）
+- Modify: `src/domain/control-plane.ts:99-101`（`detectPrompt` 下加 `answerPrompt`）
+- Modify: `src/server/routes.ts:76-77`（加 `POST /api/sessions/:id/prompt`，改注释）
+- Modify: `web/src/core/api.ts`（`Api` 加 `answerPrompt`）
+- Modify: `web/src/views/console-view.ts:145-149`（改调 `api.answerPrompt`）
+- Modify: `web/src/components/prompt-box.ts:4`（改注释）
+- Modify: `test/fakes/index.ts:14-24`（`FakeTmux` 加 `literal` 与 `sendLiteral`）
+- Test: `test/unit/control-plane.test.ts`（加 `answerPrompt` 两个 test）、`test/unit/web-api.test.ts`（兜底文案清单）
+
+**Interfaces:**
+- Consumes: `ControlPlane.managedTmuxName`（私有守卫，Task 1 已有）
+- Produces: `TmuxAdapter.sendLiteral(name: string, text: string): Promise<void>`；
+  `ControlPlane.answerPrompt(id: string, key: string): Promise<void>`；
+  `POST /api/sessions/:id/prompt {key}` → 202 `{ok:true}`；`Api.answerPrompt(id, key)`。
+  后续任务无依赖（Task 2-8 不碰这条路径）。
+
+- [ ] **Step 1: 写失败的测试**
+
+`test/unit/control-plane.test.ts`，在 `capturePane` / `detectPrompt` 那个 `describe` 里加两个 test
+（`plane` / `tmux` 夹具沿用该文件既有 `setup()` 写法，不要新造）：
+
+```ts
+  test('answerPrompt 只送字面字符，不追加 Enter', async () => {
+    const { plane, tmux, registry } = setup();
+    await registry.put({ sessionId: 'S1', tmuxSession: 'ls-S1', cwd: '/tmp', kernel: 'claude' } as any);
+    tmux.sessions.set('ls-S1', { cwd: '/tmp', command: [] });
+    await plane.answerPrompt('S1', '2');
+    expect(tmux.literal).toEqual([{ name: 'ls-S1', text: '2' }]);
+    expect(tmux.sent).toEqual([]);
+  });
+
+  test('answerPrompt 对外部会话抛 NotControllable、对不存在会话抛 NotFound', async () => {
+    const { plane, home } = setup();
+    home.live = [{ sessionId: 'EXT' } as any];
+    await expect(plane.answerPrompt('EXT', '1')).rejects.toBeInstanceOf(NotControllableError);
+    await expect(plane.answerPrompt('NOPE', '1')).rejects.toBeInstanceOf(NotFoundError);
+  });
+```
+
+注：`setup()` 的返回字段名、`registry.put` 的入参形状、`NotControllableError` / `NotFoundError` 的
+导入方式，一律照该文件既有 test 抄；上面是意图，形状对齐现有代码。
+
+- [ ] **Step 2: 跑测试确认它失败**
+
+```bash
+/Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run test/unit/control-plane.test.ts
+```
+Expected: FAIL —— `plane.answerPrompt is not a function` / `tmux.literal` 为 undefined。
+
+- [ ] **Step 3: 扩 fake**
+
+`test/fakes/index.ts` 的 `FakeTmux`：在 `sent` 下加一行字段，在 `sendText` 下加一个方法。
+
+```ts
+  literal: { name: string; text: string }[] = [];
+```
+
+```ts
+  async sendLiteral(name: string, text: string) {
+    if (!this.sessions.has(name)) throw new Error('no session ' + name);
+    this.literal.push({ name, text });
+  }
+```
+
+- [ ] **Step 4: 加端口与适配器实现**
+
+`src/ports/index.ts`，紧跟 `sendText` 那一行之后：
+
+```ts
+  sendLiteral(name: string, text: string): Promise<void>;  // 字面字符, 不追加 Enter: send-keys -l
+```
+
+`src/adapters/tmux.ts`，紧跟 `sendText` 方法之后：
+
+```ts
+  // send-keys -l 关掉键名查找、按字面 UTF-8 处理, 因此发不出 Escape/Up/Enter, 只能送字面字符。
+  async sendLiteral(name: string, text: string): Promise<void> {
+    await this.run(['send-keys', '-l', '-t', name, text]);
+  }
+```
+
+- [ ] **Step 5: 加领域方法**
+
+`src/domain/control-plane.ts`，紧跟 `detectPrompt` 之后：
+
+```ts
+  // 应答交互选择器：只送字面字符(编号)，不追加 Enter。
+  async answerPrompt(id: string, key: string): Promise<void> {
+    await this.d.tmux.sendLiteral(await this.managedTmuxName(id), key);
+  }
+```
+
+- [ ] **Step 6: 跑测试确认它通过**
+
+```bash
+/Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run test/unit/control-plane.test.ts
+```
+Expected: PASS。
+
+- [ ] **Step 7: 加路由**
+
+`src/server/routes.ts`：把 `// 交互选择器：只读识别；应答走 send 通道。` 改成
+`// 交互选择器：只读识别 + 字面应答(不追加 Enter)。`；在 `GET /api/sessions/:id/prompt` 那一行之后加
+
+```ts
+  app.post('/api/sessions/:id/prompt', (req, reply) =>
+    wrap(reply, async () => { await plane.answerPrompt((req.params as any).id, (req.body as any).key); return { ok: true }; }, 202));
+```
+
+- [ ] **Step 8: 改前端**
+
+`web/src/core/api.ts`：在 `Api` 接口里 `sendSessionMessage` 附近加
+
+```ts
+  answerPrompt(id: string, key: string): Promise<void>;
+```
+
+实现对象里对应位置加（`post` 帮手与 `sendSessionMessage` 同款，路径照该文件既有拼法）：
+
+```ts
+  answerPrompt: (id, key) => post<void>(`/api/sessions/${encodeURIComponent(id)}/prompt`, { key }),
+```
+
+`web/src/views/console-view.ts:146`：`await api.sendSessionMessage(id, key);` → `await api.answerPrompt(id, key);`
+
+`web/src/components/prompt-box.ts:4` 注释改成
+
+```ts
+// 选项按钮只发数字（已验证权限框数字即确认）：走 send-keys -l 字面通道，不追加 Enter。
+```
+
+`test/unit/web-api.test.ts`：若 `answerPrompt` 落在该文件断言的兜底文案/方法清单里，同步补上；
+该文件头注释里的条数说明要与实际断言数一致。
+
+- [ ] **Step 9: 两个类型检查 + 全量测试**
+
+```bash
+/Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/typescript/bin/tsc --noEmit
+/Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json
+/Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run
+```
+Expected: 三条都 PASS。
+
+- [ ] **Step 10: 提交**
+
+```bash
+git add -A
+git commit -m "feat(control): 应答交互选择器改走 send-keys -l 字面通道，不追加 Enter"
+```
+
+---
+
 ### Task 2: 两个端口 + ClaudeSource
 
 把 `ClaudeHomeAdapter` 拆成 `AgentSource` / `ControllableSource`，`claude-home.ts` 的 body 迁进 `sources/base.ts` + `sources/claude.ts`，并让 `kernel` / `adoptable` 贯通类型层。本任务结束时系统仍只有一个 source，但已经是 kernel-aware 的。
@@ -2446,7 +2609,9 @@ Expected: 201，返回体里 `kernel` 为 `qodercli`。
    `#promptSlot` 出现编号选项面板，且**没有**方向键那一行（Task 1 已删）。
 3. 点「2. No」→ 面板收起、会话继续、目标目录权限未变
    （`stat -f "%Sp %N" /private/tmp/keytest` 仍是 `drwxr-xr-x`）。
-   这一步同时验证了「编号答复改走 send 通道」是有效的。
+   这一步验证「编号答复走 `send-keys -l` 字面通道」在真实 TUI 上有效（Task 1 修订 A / 设计 §7.1）——
+   浏览器请求应打到 `POST /api/sessions/<id>/prompt`，**不是** `/messages`；
+   面板收起后输入框应保持空白（没有被追加的 `Enter` 或残留的 `2`）。
 
 再确认不可控内核确实被挡住：
 
