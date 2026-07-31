@@ -31,6 +31,15 @@ const mk = (root: string) => {
   };
 };
 
+// status 的正向用例要一个真实存在的脚本路径，且路径里必须含 lifestream-heartbeat 才被认成我们的。
+const realScript = (root: string): string => {
+  const dir = join(root, 'dist', 'hooks');
+  mkdirSync(dir, { recursive: true });
+  const p = join(dir, 'lifestream-heartbeat.js');
+  writeFileSync(p, '// 占位');
+  return p;
+};
+
 describe('heartbeatPayload', () => {
   test('camelCase 的 sessionId 与 hook_event_name', () => {
     const p = heartbeatPayload(JSON.stringify({
@@ -179,6 +188,49 @@ describe('runHooksCommand', () => {
     const out = logs.join('\n');
     expect(out).toContain(gone);
     expect(out).toContain('已丢失');
+  });
+
+  test('status 在注入的脚本仍在原处时报「存在」', () => {
+    const root = tmp();
+    const { deps, logs } = mk(root);
+    const script = realScript(root);
+    deps.script = () => script;
+    runHooksCommand(['install', '--target', 'qoderwork'], deps);
+    expect(runHooksCommand(['status'], deps)).toBe(0);
+    expect(logs.join('\n')).toContain(`注入的脚本 ${script}：存在`);
+  });
+
+  // 注入的 node 是安装时的绝对路径（本机来自 nvm）：升级/清理后目录消失，hook 静默死掉，
+  // 而脚本还在原处 —— status 必须把 node 单独报出来。
+  test('status 报出注入的 node 已丢失（脚本仍在）', () => {
+    const root = tmp();
+    const { deps, work, logs } = mk(root);
+    const script = realScript(root);
+    const goneNode = join(root, 'nvm-cleaned', 'bin', 'node');
+    writeFileSync(join(work, 'settings.json'), JSON.stringify({
+      hooks: {
+        Stop: [{
+          matcher: '*',
+          hooks: [{ type: 'command', command: `"${goneNode}" "${script}" --dir "${join(root, 'hb')}"` }],
+        }],
+      },
+    }));
+    expect(runHooksCommand(['status'], deps)).toBe(0);
+    const out = logs.join('\n');
+    expect(out).toContain(`注入的脚本 ${script}：存在`);
+    expect(out).toContain(`注入的 node ${goneNode}：已丢失`);
+  });
+
+  test('status 报出最近一次心跳的时间', () => {
+    const root = tmp();
+    const { deps, logs } = mk(root);
+    const hb = join(root, 'state', 'heartbeats', 'qoderwork');
+    mkdirSync(hb, { recursive: true });
+    writeFileSync(join(hb, 's1.json'), JSON.stringify({ sessionId: 's1', ts: 1 }));
+    expect(runHooksCommand(['status'], deps)).toBe(0);
+    const out = logs.join('\n');
+    expect(out).toContain('1 个文件');
+    expect(out).toMatch(/最近 \d{4}-\d{2}-\d{2}T/);
   });
 
   test('缺 --target 或子命令不认识时返回 2 并打 usage', () => {

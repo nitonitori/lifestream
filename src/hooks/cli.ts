@@ -5,7 +5,8 @@ import {
   heartbeatHookStatus, installHeartbeatHooks, ourHeartbeatCommand, uninstallHeartbeatHooks,
 } from '../domain/qoder-hooks.js';
 import {
-  heartbeatCommand, readSettings, scriptPathFromCommand, targetPaths, writeSettings,
+  heartbeatCommand, nodePathFromCommand, readSettings, scriptPathFromCommand, targetPaths,
+  writeSettings,
 } from '../adapters/hooks-installer.js';
 import { safeReaddir } from '../adapters/sources/base.js';
 
@@ -28,6 +29,11 @@ function latestHeartbeat(dir: string, files: string[]): string {
   return newest > 0 ? `，最近 ${new Date(newest).toISOString()}` : '';
 }
 
+// 命令串里 node 与脚本都是安装时的绝对路径：脚本随目录挪走、node 随 nvm 升级/清理而消失，
+// 任一丢了 hook 都静默死掉，所以两者分别报存在性。
+const pathLine = (what: string, p: string): string =>
+  `  ${what} ${p}：` + (existsSync(p) ? '存在' : '已丢失（心跳不会产生，重新 install 即可修）');
+
 export function runHooksCommand(args: string[], d: HooksDeps): number {
   const sub = args[0];
 
@@ -35,11 +41,9 @@ export function runHooksCommand(args: string[], d: HooksDeps): number {
     for (const t of HOOK_TARGETS) {
       const p = targetPaths(d.homes, d.stateDir, t);
       let line: string;
-      let scriptLine: string | null = null;
-      let readOk = false;
+      const extra: string[] = [];
       try {
         const settings = readSettings(p.settings);
-        readOk = true;
         const st = heartbeatHookStatus(settings);
         line = `已装 ${st.installed.length}/${HEARTBEAT_EVENTS.length}`
           + (st.missing.length > 0 ? `，缺 ${st.missing.join(',')}` : '');
@@ -47,16 +51,15 @@ export function runHooksCommand(args: string[], d: HooksDeps): number {
         // 目录挪走或没 build 就静默哑掉。所以 status 得报出脚本还在不在。
         const cmd = ourHeartbeatCommand(settings);
         const script = cmd ? scriptPathFromCommand(cmd) : null;
-        if (script) {
-          scriptLine = `  注入的脚本 ${script}：` + (existsSync(script)
-            ? '存在' : '已丢失（心跳不会产生，重新 install 即可修）');
-        }
+        const node = cmd ? nodePathFromCommand(cmd) : null;
+        if (script) extra.push(pathLine('注入的脚本', script));
+        if (node) extra.push(pathLine('注入的 node', node));
       } catch (e) { line = `读取失败：${(e as Error).message}`; }
       const files = safeReaddir(p.heartbeatDir).filter(f => f.endsWith('.json'));
       d.log(`${t}: ${p.settings} — ${line}`);
-      if (scriptLine) d.log(scriptLine);
+      for (const l of extra) d.log(l);
       d.log(`  心跳目录 ${p.heartbeatDir}：${files.length} 个文件`
-        + (readOk ? latestHeartbeat(p.heartbeatDir, files) : ''));
+        + latestHeartbeat(p.heartbeatDir, files));
     }
     return 0;
   }

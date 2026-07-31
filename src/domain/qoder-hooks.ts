@@ -23,9 +23,17 @@ const isOurs = (h: HookEntry): boolean =>
 
 // 只过滤组里我们那几条；`hooks` 不是数组的组（别家可能写成字符串等非标准形状）原样保留，
 // 否则 `{...g}` 展开后会因“没有 hooks 数组”被当成空组丢掉。
-const withoutOurs = (groups: HookMatcher[]): HookMatcher[] =>
-  groups.map(g => (Array.isArray(g?.hooks) ? { ...g, hooks: g.hooks.filter(h => !isOurs(h)) } : g))
-        .filter(g => !Array.isArray(g?.hooks) || g.hooks.length > 0);
+// 只丢「原本非空、被我们过滤成空」的组：他厂本来就写 hooks: [] 的条目要原样留着，
+// 否则 install/uninstall 会顺手删掉不属于我们的东西。
+const withoutOurs = (groups: HookMatcher[]): HookMatcher[] => {
+  const out: HookMatcher[] = [];
+  for (const g of groups) {
+    if (!Array.isArray(g?.hooks)) { out.push(g); continue; }
+    const hooks = g.hooks.filter(h => !isOurs(h));
+    if (hooks.length > 0 || g.hooks.length === 0) out.push({ ...g, hooks });
+  }
+  return out;
+};
 
 // 只碰真含我们标记的事件：别家可能留着 hooks 为空数组的条目或非标准形状的组，
 // 无条件跑一遍 withoutOurs 会把它们连键一起删掉。
@@ -75,7 +83,8 @@ export function heartbeatHookStatus(
   const installed: HeartbeatEvent[] = [];
   const missing: HeartbeatEvent[] = [];
   for (const ev of HEARTBEAT_EVENTS) {
-    const hit = (settings.hooks?.[ev] ?? []).some(g => (g.hooks ?? []).some(isOurs));
+    const hit = (settings.hooks?.[ev] ?? [])
+      .some(g => (Array.isArray(g?.hooks) ? g.hooks : []).some(isOurs));
     (hit ? installed : missing).push(ev);
   }
   return { installed, missing };

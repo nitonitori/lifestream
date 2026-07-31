@@ -81,23 +81,42 @@ describe('uninstallHeartbeatHooks', () => {
     expect(uninstallHeartbeatHooks({})).toEqual({});
   });
 
-  // 别家留着 hooks 为空数组的条目时，无条件过滤会把整个事件键删掉。
-  test('保留他厂 hooks 为空数组的条目（连事件键一起）', () => {
+  // 他厂本来就写 hooks: [] 的条目必须原样留着；这些组要放在**我们的**事件里、且同一事件里
+  // 还有我们那条 hook，否则 hasOurs 会提前 continue，withoutOurs 根本不执行（用例会假绿）。
+  test('保留同一事件里他厂 hooks 为空数组的条目', () => {
     const s = {
       hooks: {
-        Notification: [{ matcher: '*', hooks: [] }],
-        Stop: [{ matcher: '*', hooks: [{ type: 'command', command: 'r2c-scan' }] }],
+        Stop: [
+          { matcher: 'keep-me', hooks: [] },
+          { matcher: '*', hooks: [{ type: 'command', command: CMD }] },
+        ],
       },
     };
     const out = uninstallHeartbeatHooks(s) as any;
-    expect(Object.keys(out.hooks)).toContain('Notification');
-    expect(out.hooks.Notification).toEqual([{ matcher: '*', hooks: [] }]);
-    expect(JSON.stringify(out.hooks.Stop)).toContain('r2c-scan');
+    expect(Object.keys(out.hooks)).toContain('Stop');
+    expect(out.hooks.Stop).toEqual([{ matcher: 'keep-me', hooks: [] }]);
   });
 
-  test('保留他厂非对象形状的组', () => {
-    const s = { hooks: { Stop: ['foreign-string'] } } as any;
-    expect(uninstallHeartbeatHooks(s)).toEqual({ hooks: { Stop: ['foreign-string'] } });
+  test('保留同一事件里他厂非对象形状的组', () => {
+    const s = {
+      hooks: {
+        Stop: [
+          'foreign-string',
+          { matcher: 'weird', hooks: 'x' },
+          { matcher: '*', hooks: [{ type: 'command', command: CMD }] },
+        ],
+      },
+    } as any;
+    const out = uninstallHeartbeatHooks(s) as any;
+    expect(out.hooks.Stop).toEqual(['foreign-string', { matcher: 'weird', hooks: 'x' }]);
+  });
+
+  test('install 也不吞掉他厂 hooks 为空数组的条目', () => {
+    const s = { hooks: { Stop: [{ matcher: 'keep-me', hooks: [] }] } };
+    const installed = installHeartbeatHooks(s, CMD) as any;
+    expect(installed.hooks.Stop).toContainEqual({ matcher: 'keep-me', hooks: [] });
+    const out = uninstallHeartbeatHooks(installed) as any;
+    expect(out.hooks.Stop).toEqual([{ matcher: 'keep-me', hooks: [] }]);
   });
 
   test('hooks 是数组时拒绝改写', () => {
@@ -110,6 +129,13 @@ describe('heartbeatHookStatus', () => {
     const s = installHeartbeatHooks({}, CMD) as any;
     delete s.hooks.Stop;
     expect(heartbeatHookStatus(s).missing).toEqual(['Stop']);
+  });
+
+  // 组的 hooks 是字符串等非数组形状时，`.some` 会抛 TypeError，status 直接崩。
+  test('组的 hooks 不是数组时不抛，算作没装', () => {
+    const s = { hooks: { Stop: [{ matcher: '*', hooks: 'x' }] } } as any;
+    expect(() => heartbeatHookStatus(s)).not.toThrow();
+    expect(heartbeatHookStatus(s).missing).toContain('Stop');
   });
 });
 

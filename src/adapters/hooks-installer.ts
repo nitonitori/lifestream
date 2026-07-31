@@ -23,10 +23,17 @@ export function heartbeatCommand(script: string, dir: string): string {
   return `"${process.execPath}" "${script}" --dir "${dir}"`;
 }
 
-// heartbeatCommand 的逆向：命令形如 `"<node>" "<script>" --dir "<dir>"`，取第二个引号段。
-// 两者必须成对修改 —— 改了命令串格式就得同步改这里的正则，否则 status 报不出脚本路径。
+// heartbeatCommand 的逆向：命令形如 `"<node>" "<script>" --dir "<dir>"`，分别取第一、第二个引号段。
+// 三者必须成对修改 —— 改了命令串格式就得同步改这两条正则，否则 status 报不出 node/脚本路径。
 export function scriptPathFromCommand(cmd: string): string | null {
   const m = cmd.match(/^"[^"]*"\s+"([^"]*)"/);
+  return m?.[1] ?? null;
+}
+
+// 注入时写的是 node 的绝对路径，本机常来自 nvm：升级/清理后该目录消失，hook 静默死掉，
+// 而脚本还在原处 —— status 必须一并报出 node 还在不在。
+export function nodePathFromCommand(cmd: string): string | null {
+  const m = cmd.match(/^"([^"]*)"/);
   return m?.[1] ?? null;
 }
 
