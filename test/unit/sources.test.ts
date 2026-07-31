@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { ClaudeSource } from '../../src/adapters/sources/claude.js';
+import { QoderCliSource } from '../../src/adapters/sources/qoder-cli.js';
 import { flatSessionIdForPath } from '../../src/adapters/sources/base.js';
 import { isControllable } from '../../src/ports/index.js';
 
@@ -71,5 +72,53 @@ describe('ClaudeSource', () => {
     mkdirSync(join(h, 'projects', '-Users-l'), { recursive: true });
     writeFileSync(join(h, 'projects', 'evil.jsonl'), '{}');
     expect(await new ClaudeSource(h, 'claude').locateTranscript('../evil')).toBeNull();
+  });
+});
+
+describe('QoderCliSource', () => {
+  const seed = (h: string, sessionId: string, run: string, lines: string[]) => {
+    const dir = join(h, 'logs', 'sessions', '-Users-l-dev-foo', sessionId, 'segments');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${run}.jsonl`), lines.join('\n') + '\n');
+  };
+
+  test('kernel 是 qodercli 且用 qodercli 方言', () => {
+    const s = new QoderCliSource(home(), 'qodercli', 'bypass_permissions');
+    expect(s.kernel).toBe('qodercli');
+    expect(s.launchCommand('sid', { cwd: '/tmp' }))
+      .toEqual(['qodercli', '--session-id', 'sid', '--permission-mode', 'bypass_permissions']);
+  });
+
+  test('run 名 pid 活着才算 live，cwd 与状态取自 segments', async () => {
+    const h = home();
+    seed(h, 'alive', `2026-07-30T16-31-03-aaaa-p${process.pid}`, [
+      JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/Users/l/dev/foo' } }),
+      JSON.stringify({ type: 'model.request.started', data: {} }),
+    ]);
+    seed(h, 'dead', '2026-07-30T16-31-03-bbbb-p99999999', [
+      JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/Users/l/dev/bar' } }),
+    ]);
+    const live = await new QoderCliSource(h, 'qodercli', 'bypass_permissions').readLiveSessions();
+    expect(live.map(x => x.sessionId)).toEqual(['alive']);
+    expect(live[0]).toMatchObject({ kernel: 'qodercli', cwd: '/Users/l/dev/foo', status: 'busy' });
+  });
+
+  test('同一会话有多个 run 时取名字最大的那个（run 名以 ISO 时间戳开头）', async () => {
+    const h = home();
+    seed(h, 's1', '2026-07-30T16-31-03-aaaa-p99999999', [
+      JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/old' } }),
+    ]);
+    seed(h, 's1', `2026-07-30T16-47-38-bbbb-p${process.pid}`, [
+      JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/new' } }),
+    ]);
+    const live = await new QoderCliSource(h, 'qodercli').readLiveSessions();
+    expect(live).toHaveLength(1);
+    expect(live[0]!.cwd).toBe('/new');
+  });
+
+  test('平铺转录归自己，transcript/ 下的不归自己', () => {
+    const s = new QoderCliSource(home(), 'qodercli');
+    expect(s.sessionIdForPath('-Users-l/abc.jsonl')).toBe('abc');
+    expect(s.sessionIdForPath('-Users-l/transcript/abc.jsonl')).toBeNull();
   });
 });

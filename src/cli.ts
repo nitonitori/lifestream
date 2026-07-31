@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { loadConfig, type Config } from './config.js';
 import { ControlPlane } from './domain/control-plane.js';
 import { ClaudeSource } from './adapters/sources/claude.js';
+import { QoderCliSource } from './adapters/sources/qoder-cli.js';
 import { Tmux } from './adapters/tmux.js';
 import { FileManagedRegistry } from './adapters/managed-registry.js';
 import { SystemClock } from './adapters/clock.js';
@@ -11,7 +12,10 @@ import { SystemClock } from './adapters/clock.js';
 export function buildPlane(cfg: Config): ControlPlane {
   return new ControlPlane({
     tmux: new Tmux(cfg.tmux.socket, cfg.tmux.bin),
-    sources: [new ClaudeSource(cfg.paths.claudeHome, cfg.claude.bin, cfg.claude.sessionPermissionMode)],
+    sources: [
+      new ClaudeSource(cfg.paths.claudeHome, cfg.claude.bin, cfg.claude.sessionPermissionMode),
+      new QoderCliSource(cfg.qoder.qoderHome, cfg.qoder.cliBin, cfg.qoder.cliPermissionMode),
+    ],
     registry: new FileManagedRegistry(join(cfg.paths.stateDir, 'managed.json')),
     clock: new SystemClock(),
     newSessionId: () => randomUUID(),

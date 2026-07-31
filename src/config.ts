@@ -7,6 +7,7 @@ export interface Config {
   tmux: { bin: string; socket: string };
   claude: { bin: string; defaultModel?: string | null; agentPermissionMode: string; sessionPermissionMode: string };
   paths: { claudeHome: string; stateDir: string };
+  qoder: { cliBin: string; cliPermissionMode: string; qoderHome: string; qoderWorkHome: string; heartbeatTtlMs: number };
   im: {
     enabled: boolean; provider: string; dwsPath?: string; pollIntervalMs: number;
     channel: { conversationId: string; send: { type: 'user' | 'group' | 'openId'; target: string } };
@@ -38,6 +39,15 @@ export function loadConfig(file = 'lifestream.config.json'): Config {
     paths: {
       claudeHome: expand(raw.paths?.claudeHome ?? '~/.claude'),
       stateDir: expand(raw.paths?.stateDir ?? '~/.lifestream'),
+    },
+    // Qoder 三个产品共用这一块：cli* 只给 qodercli，qoderWorkHome / heartbeatTtlMs 给桌面 source。
+    qoder: {
+      cliBin: raw.qoder?.cliBin ?? 'qodercli',
+      // qodercli 的方言是下划线（Claude Code 是 bypassPermissions），flag 名相同。
+      cliPermissionMode: raw.qoder?.cliPermissionMode ?? 'bypass_permissions',
+      qoderHome: expand(raw.qoder?.qoderHome ?? '~/.qoder'),
+      qoderWorkHome: expand(raw.qoder?.qoderWorkHome ?? '~/.qoderwork'),
+      heartbeatTtlMs: raw.qoder?.heartbeatTtlMs ?? 30 * 60 * 1000,
     },
     im: {
       enabled: false, provider: 'dingtalk', pollIntervalMs: 3000,
