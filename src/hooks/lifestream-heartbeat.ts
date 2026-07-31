@@ -44,6 +44,10 @@ export function isDirectRun(entry: string | undefined, moduleUrl: string): boole
 }
 
 // 任何异常都吞掉：这个 hook 挂在别人的进程里，绝不能把宿主搞崩。
-if (isDirectRun(process.argv[1], import.meta.url)) {
-  void main(process.argv.slice(2), process.stdin).catch(() => {});
-}
+// 连 isDirectRun 自身（fileURLToPath / realpathSync）也得包起来 —— 它在模块顶层，
+// 一旦抛出就是宿主进程里的未捕获异常。
+try {
+  if (isDirectRun(process.argv[1], import.meta.url)) {
+    void main(process.argv.slice(2), process.stdin).catch(() => {});
+  }
+} catch { /* 绝不影响宿主 */ }

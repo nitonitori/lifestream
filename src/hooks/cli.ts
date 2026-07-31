@@ -1,10 +1,11 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   HEARTBEAT_EVENTS, HOOK_TARGETS, type HookTarget,
-  heartbeatHookStatus, installHeartbeatHooks, uninstallHeartbeatHooks,
+  heartbeatHookStatus, installHeartbeatHooks, ourHeartbeatCommand, uninstallHeartbeatHooks,
 } from '../domain/qoder-hooks.js';
 import {
-  heartbeatCommand, readSettings, targetPaths, writeSettings,
+  heartbeatCommand, readSettings, scriptPathFromCommand, targetPaths, writeSettings,
 } from '../adapters/hooks-installer.js';
 import { safeReaddir } from '../adapters/sources/base.js';
 
@@ -18,6 +19,15 @@ export interface HooksDeps {
   log: (s: string) => void;
 }
 
+// 最近一次心跳的时间：文件数为 0 或都 stat 不到时返回空串（不追加这段）。
+function latestHeartbeat(dir: string, files: string[]): string {
+  let newest = 0;
+  for (const f of files) {
+    try { newest = Math.max(newest, statSync(join(dir, f)).mtimeMs); } catch { /* 忽略 */ }
+  }
+  return newest > 0 ? `，最近 ${new Date(newest).toISOString()}` : '';
+}
+
 export function runHooksCommand(args: string[], d: HooksDeps): number {
   const sub = args[0];
 
@@ -25,14 +35,28 @@ export function runHooksCommand(args: string[], d: HooksDeps): number {
     for (const t of HOOK_TARGETS) {
       const p = targetPaths(d.homes, d.stateDir, t);
       let line: string;
+      let scriptLine: string | null = null;
+      let readOk = false;
       try {
-        const st = heartbeatHookStatus(readSettings(p.settings));
+        const settings = readSettings(p.settings);
+        readOk = true;
+        const st = heartbeatHookStatus(settings);
         line = `已装 ${st.installed.length}/${HEARTBEAT_EVENTS.length}`
           + (st.missing.length > 0 ? `，缺 ${st.missing.join(',')}` : '');
+        // 「装了但没心跳」最常见的成因：settings 里那条命令写的是安装时 cwd 下 dist 的绝对路径，
+        // 目录挪走或没 build 就静默哑掉。所以 status 得报出脚本还在不在。
+        const cmd = ourHeartbeatCommand(settings);
+        const script = cmd ? scriptPathFromCommand(cmd) : null;
+        if (script) {
+          scriptLine = `  注入的脚本 ${script}：` + (existsSync(script)
+            ? '存在' : '已丢失（心跳不会产生，重新 install 即可修）');
+        }
       } catch (e) { line = `读取失败：${(e as Error).message}`; }
-      const n = safeReaddir(p.heartbeatDir).filter(f => f.endsWith('.json')).length;
+      const files = safeReaddir(p.heartbeatDir).filter(f => f.endsWith('.json'));
       d.log(`${t}: ${p.settings} — ${line}`);
-      d.log(`  心跳目录 ${p.heartbeatDir}：${n} 个文件`);
+      if (scriptLine) d.log(scriptLine);
+      d.log(`  心跳目录 ${p.heartbeatDir}：${files.length} 个文件`
+        + (readOk ? latestHeartbeat(p.heartbeatDir, files) : ''));
     }
     return 0;
   }

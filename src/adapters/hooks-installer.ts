@@ -17,7 +17,17 @@ export function heartbeatScriptPath(): string {
 }
 
 export function heartbeatCommand(script: string, dir: string): string {
+  // 双引号内 $ 与反引号仍会被 shell 解释，含这些字符的路径拼出来的命令会静默失效。
+  for (const s of [process.execPath, script, dir])
+    if (/["$`\\]/.test(s)) throw new Error(`路径含 shell 特殊字符，无法安全注入：${s}`);
   return `"${process.execPath}" "${script}" --dir "${dir}"`;
+}
+
+// heartbeatCommand 的逆向：命令形如 `"<node>" "<script>" --dir "<dir>"`，取第二个引号段。
+// 两者必须成对修改 —— 改了命令串格式就得同步改这里的正则，否则 status 报不出脚本路径。
+export function scriptPathFromCommand(cmd: string): string | null {
+  const m = cmd.match(/^"[^"]*"\s+"([^"]*)"/);
+  return m?.[1] ?? null;
 }
 
 // 解析失败必须抛：返回 {} 再写回去会把用户原有的 settings 抹掉。

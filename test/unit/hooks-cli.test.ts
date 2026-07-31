@@ -4,8 +4,10 @@ import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { heartbeatHookStatus } from '../../src/domain/qoder-hooks.js';
-import { readSettings } from '../../src/adapters/hooks-installer.js';
+import { heartbeatHookStatus, installHeartbeatHooks } from '../../src/domain/qoder-hooks.js';
+import {
+  heartbeatCommand, readSettings, scriptPathFromCommand,
+} from '../../src/adapters/hooks-installer.js';
 import { heartbeatPayload, isDirectRun, writeHeartbeat } from '../../src/hooks/lifestream-heartbeat.js';
 import { runHooksCommand } from '../../src/hooks/cli.js';
 
@@ -105,24 +107,40 @@ describe('runHooksCommand', () => {
     expect(cmd(work)).toContain(join('heartbeats', 'qoderwork'));
   });
 
-  test('先备份再改写，且保留他厂条目', () => {
+  test('先备份再改写：备份内容是改写前的原文', () => {
     const root = tmp();
     const { deps, work } = mk(root);
     const file = join(work, 'settings.json');
-    writeFileSync(file, JSON.stringify({
+    const original = JSON.stringify({
       hooks: { Stop: [{ matcher: '*', hooks: [{ type: 'command', command: 'loongsuite' }] }] },
-    }));
+    });
+    writeFileSync(file, original);
     runHooksCommand(['install', '--target', 'qoderwork'], deps);
-    expect(readdirSync(work).filter(f => f.includes('lifestream-backup-'))).toHaveLength(1);
+    const backups = readdirSync(work).filter(f => f.includes('lifestream-backup-'));
+    expect(backups).toHaveLength(1);
+    // 断言内容而不只是「文件存在」：否则实现改成「写后再备份」也照样过。
+    expect(readFileSync(join(work, backups[0]), 'utf8')).toBe(original);
     expect(JSON.stringify(readSettings(file))).toContain('loongsuite');
   });
 
-  test('--dry-run 不落盘', () => {
+  test('--dry-run 不落盘、也不建心跳目录', () => {
     const root = tmp();
     const { deps, work, logs } = mk(root);
     expect(runHooksCommand(['install', '--target', 'qoderwork', '--dry-run'], deps)).toBe(0);
     expect(existsSync(join(work, 'settings.json'))).toBe(false);
+    expect(existsSync(join(root, 'state', 'heartbeats', 'qoderwork'))).toBe(false);
     expect(logs.join('\n')).toContain('dry-run');
+  });
+
+  test('CLI 层幂等：连跑两次 install 只留一条我们的 hook', () => {
+    const root = tmp();
+    const { deps, work } = mk(root);
+    runHooksCommand(['install', '--target', 'qoderwork'], deps);
+    runHooksCommand(['install', '--target', 'qoderwork'], deps);
+    const s = readSettings(join(work, 'settings.json')) as any;
+    const mine = (s.hooks.Stop as any[]).flatMap(g => g.hooks)
+      .filter((h: any) => h.command.includes('lifestream-heartbeat'));
+    expect(mine).toHaveLength(1);
   });
 
   test('uninstall 只删自己那一项', () => {
@@ -138,14 +156,29 @@ describe('runHooksCommand', () => {
     expect(JSON.stringify(readSettings(file))).toContain('loongsuite');
   });
 
-  test('status 报出两个 target 的安装情况', () => {
+  test('status 分别报出装了的与没装的 target', () => {
     const root = tmp();
     const { deps, logs } = mk(root);
     runHooksCommand(['install', '--target', 'qoderwork'], deps);
     expect(runHooksCommand(['status'], deps)).toBe(0);
     const out = logs.join('\n');
-    expect(out).toContain('qoderwork');
-    expect(out).toContain('qoder-ide');
+    expect(out).toMatch(/qoderwork: .*已装 5\/5/);
+    expect(out).toMatch(/qoder-ide: .*已装 0\/5/);
+  });
+
+  // 「装了但没心跳」最常见的成因就是这个：注入的 dist 路径挪走了。
+  test('status 报出注入的脚本已丢失', () => {
+    const root = tmp();
+    const { deps, work, logs } = mk(root);
+    const gone = join(root, 'moved-away', 'dist', 'hooks', 'lifestream-heartbeat.js');
+    writeFileSync(
+      join(work, 'settings.json'),
+      JSON.stringify(installHeartbeatHooks({}, heartbeatCommand(gone, join(root, 'hb')))),
+    );
+    expect(runHooksCommand(['status'], deps)).toBe(0);
+    const out = logs.join('\n');
+    expect(out).toContain(gone);
+    expect(out).toContain('已丢失');
   });
 
   test('缺 --target 或子命令不认识时返回 2 并打 usage', () => {
@@ -155,12 +188,34 @@ describe('runHooksCommand', () => {
     expect(logs.join('\n')).toContain('lifestream hooks');
   });
 
+  test('未知 --target 返回 2 并说明未知', () => {
+    const { deps, logs } = mk(tmp());
+    expect(runHooksCommand(['install', '--target', 'vscode'], deps)).toBe(2);
+    expect(logs.join('\n')).toContain('未知');
+  });
+
   test('settings.json 不是合法 JSON 时拒绝改写', () => {
     const root = tmp();
     const { deps, work } = mk(root);
     const file = join(work, 'settings.json');
     writeFileSync(file, '{ 坏掉的 json');
-    expect(() => runHooksCommand(['install', '--target', 'qoderwork'], deps)).toThrow();
+    expect(() => runHooksCommand(['install', '--target', 'qoderwork'], deps))
+      .toThrow(/不是合法 JSON/);
     expect(readFileSync(file, 'utf8')).toBe('{ 坏掉的 json');
+  });
+});
+
+describe('heartbeatCommand / scriptPathFromCommand', () => {
+  test('往返：拼出的命令能解析回脚本路径（含空格也行）', () => {
+    const script = '/a b/dist/hooks/lifestream-heartbeat.js';
+    expect(scriptPathFromCommand(heartbeatCommand(script, '/c d/heartbeats/qoderwork')))
+      .toBe(script);
+  });
+
+  // 双引号内 $ 与反引号仍会被 shell 解释，拼出来的命令会静默失效。
+  test('路径含 shell 特殊字符时拒绝拼命令', () => {
+    for (const bad of ['/a"b/x.js', '/a$b/x.js', '/a`b/x.js', '/a\\b/x.js'])
+      expect(() => heartbeatCommand(bad, '/hb')).toThrow(/shell 特殊字符/);
+    expect(() => heartbeatCommand('/ok/x.js', '/hb/`whoami`')).toThrow(/shell 特殊字符/);
   });
 });

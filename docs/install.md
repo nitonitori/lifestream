@@ -22,6 +22,14 @@ lifestream 自己的 hook，把心跳写到 lifestream 的状态目录。
 
 ### 安装
 
+**必须在含 `dist` 的目录下执行 install**：安装时按 `process.cwd()` 找
+`dist/hooks/lifestream-heartbeat.js`（找不到就报「先执行 npm run build」），而且**注入进
+settings.json 的是这个 dist 的绝对路径**。所以：
+
+- 部署实例请先 `cd ~/apps/lifestream` 再装，别在开发目录里给部署实例装；
+- 装完把该目录挪走 / 删掉 / 重命名，心跳会**静默停止**（宿主照常执行 hook，只是脚本不在了），
+  此时 `lifestream hooks status` 会报「注入的脚本 … 已丢失」——重新在正确目录下 install 即可修。
+
     lifestream hooks install --target all          # 两个产品都装
     lifestream hooks install --target qoder-ide    # 只装 Qoder IDE
     lifestream hooks install --target qoderwork    # 只装 QoderWork
@@ -46,8 +54,11 @@ lifestream 自己的 hook，把心跳写到 lifestream 的状态目录。
     ls ~/.lifestream/heartbeats/qoder-ide/
     ls ~/.lifestream/heartbeats/qoderwork/
 
-每个活跃会话对应一个 `<sessionId>.json`。出现文件后，该会话就会出现在 Web 会话列表里（标签
-`QODER` / `QW`）。`lifestream hooks status` 也会报出每个心跳目录里的文件数。
+每个活跃会话对应一个 `<sessionId>.json`。`lifestream hooks status` 会报出三件事：五个事件装了几个、
+注入的脚本还在不在、每个心跳目录里的文件数与最近一次心跳时间。
+
+> 会话出现在 Web 会话列表里（内核标签 `QODER` / `QW`）由**后续任务**接上 —— 本次只交付
+> 「往 settings.json 注入 hook」与「心跳落盘到 `~/.lifestream/heartbeats/`」这两件事。
 
 ### 卸载
 
@@ -57,10 +68,18 @@ lifestream 自己的 hook，把心跳写到 lifestream 的状态目录。
 清理，确认无碍后可以手动删掉 `~/.qoder/settings.json.lifestream-backup-*` 与
 `~/.qoderwork/settings.json.lifestream-backup-*`。
 
+**卸载不清理心跳目录**：`~/.lifestream/heartbeats/<target>/` 下已写下的 `*.json` 会残留（卸载只
+改 settings.json）。需要时自己删：
+
+    rm -f ~/.lifestream/heartbeats/qoder-ide/*.json ~/.lifestream/heartbeats/qoderwork/*.json
+
 ### 已知精度上限
 
 hook 协议没有周期性心跳，心跳只在事件发生时刷新。因此一个已经关掉、但最后一个事件不是 `Stop`
 的会话，会在 30 分钟（`heartbeatTtlMs`）内继续显示为在线。两个桌面产品同样受限。
+
+> `heartbeatTtlMs` 这个判活口径由**后续任务**生效（本次只交付注入与心跳落盘，还没有谁去读这些
+> 心跳文件）。
 
 ## Qoder CLI
 

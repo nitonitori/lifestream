@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
-  HEARTBEAT_EVENTS, heartbeatHookStatus, installHeartbeatHooks, uninstallHeartbeatHooks,
+  HEARTBEAT_EVENTS, heartbeatHookStatus, installHeartbeatHooks, ourHeartbeatCommand,
+  uninstallHeartbeatHooks,
 } from '../../src/domain/qoder-hooks.js';
 
 const CMD = '"/usr/bin/node" "/x/dist/hooks/lifestream-heartbeat.js" --dir "/y/qoderwork"';
@@ -48,6 +49,17 @@ describe('installHeartbeatHooks', () => {
     expect(mine).toHaveLength(1);
     expect(mine[0].command).toContain('/y/qoder-ide');
   });
+
+  // hooks 是数组时若照常改写，JSON.stringify 会丢掉具名属性、落盘成 {"hooks":[]}，
+  // 而命令行仍报「已安装」—— 必须显式拒绝而不是静默毁配置。
+  test('hooks 是数组时拒绝改写', () => {
+    expect(() => installHeartbeatHooks({ hooks: [] } as any, CMD)).toThrow(/结构异常/);
+    expect(() => installHeartbeatHooks({ hooks: 'abc' } as any, CMD)).toThrow(/结构异常/);
+  });
+
+  test('事件值不是数组时拒绝改写（否则覆盖掉用户原值）', () => {
+    expect(() => installHeartbeatHooks({ hooks: { Stop: 'x' } } as any, CMD)).toThrow(/结构异常/);
+  });
 });
 
 describe('uninstallHeartbeatHooks', () => {
@@ -68,6 +80,29 @@ describe('uninstallHeartbeatHooks', () => {
   test('对没装过的 settings 是空操作', () => {
     expect(uninstallHeartbeatHooks({})).toEqual({});
   });
+
+  // 别家留着 hooks 为空数组的条目时，无条件过滤会把整个事件键删掉。
+  test('保留他厂 hooks 为空数组的条目（连事件键一起）', () => {
+    const s = {
+      hooks: {
+        Notification: [{ matcher: '*', hooks: [] }],
+        Stop: [{ matcher: '*', hooks: [{ type: 'command', command: 'r2c-scan' }] }],
+      },
+    };
+    const out = uninstallHeartbeatHooks(s) as any;
+    expect(Object.keys(out.hooks)).toContain('Notification');
+    expect(out.hooks.Notification).toEqual([{ matcher: '*', hooks: [] }]);
+    expect(JSON.stringify(out.hooks.Stop)).toContain('r2c-scan');
+  });
+
+  test('保留他厂非对象形状的组', () => {
+    const s = { hooks: { Stop: ['foreign-string'] } } as any;
+    expect(uninstallHeartbeatHooks(s)).toEqual({ hooks: { Stop: ['foreign-string'] } });
+  });
+
+  test('hooks 是数组时拒绝改写', () => {
+    expect(() => uninstallHeartbeatHooks({ hooks: [] } as any)).toThrow(/结构异常/);
+  });
 });
 
 describe('heartbeatHookStatus', () => {
@@ -75,5 +110,15 @@ describe('heartbeatHookStatus', () => {
     const s = installHeartbeatHooks({}, CMD) as any;
     delete s.hooks.Stop;
     expect(heartbeatHookStatus(s).missing).toEqual(['Stop']);
+  });
+});
+
+describe('ourHeartbeatCommand', () => {
+  test('装过则返回注入的那条命令', () => {
+    expect(ourHeartbeatCommand(installHeartbeatHooks(FOREIGN, CMD))).toBe(CMD);
+  });
+  test('没装过返回 null', () => {
+    expect(ourHeartbeatCommand(FOREIGN)).toBeNull();
+    expect(ourHeartbeatCommand({})).toBeNull();
   });
 });
