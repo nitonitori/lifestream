@@ -111,8 +111,21 @@ async function main(): Promise<void> {
       try { writeFileSync('lifestream.config.json', JSON.stringify(cfg, null, 2)); } catch { /* ignore */ }
     }
     console.log(cfg.web.token);
+  } else if (cmd === 'hooks') {
+    // 显式成对命令：往 Qoder 两个桌面产品的 settings.json 注入/移除 lifestream 自己的心跳 hook。
+    // 绝不在 serve / daemon 启动路径里静默做——改写别家配置只发生在用户亲手敲这条命令时。
+    const { runHooksCommand } = await import('./hooks/cli.js');
+    const { heartbeatScriptPath } = await import('./adapters/hooks-installer.js');
+    // slice(3) 丢掉 node、cli.js、hooks 三个，交给 runHooksCommand 的只有子命令与 flag。
+    process.exit(runHooksCommand(process.argv.slice(3), {
+      homes: { 'qoder-ide': cfg.qoder.qoderHome, qoderwork: cfg.qoder.qoderWorkHome },
+      stateDir: cfg.paths.stateDir,
+      script: heartbeatScriptPath,
+      now: () => Date.now(),
+      log: (s) => console.log(s),
+    }));
   } else {
-    console.log('usage: lifestream <sessions | tail <id> | serve | daemon [--watch] | reload | token | install-launchd | mcp [--mode direct|im]>');
+    console.log('usage: lifestream <sessions | tail <id> | serve | daemon [--watch] | reload | token | install-launchd | hooks <install|uninstall|status> | mcp [--mode direct|im]>');
   }
 }
 
