@@ -344,6 +344,107 @@ git add -A
 git commit -m "feat(control): 应答交互选择器改走 send-keys -l 字面通道，不追加 Enter"
 ```
 
+#### 复审补丁（Step 11-14）
+
+修订 A 的复审给出两个 Important 与一个 Minor，处置如下。
+
+**Important #1 —— `key` 里的前导 `-` 会被 tmux getopt 当选项。** `POST {"key":"-R"}` 会拼成
+`send-keys -l -t <name> -R`，`-R` 被吃成 flag。用 `--` 终止选项解析修掉，已实测：
+`tmux send-keys -l -t p -- '-R'` 退出 0，且交付到 pane 的是字面字节 `2d 52`（"-R"）。
+
+复审同时建议在 `answerPrompt` 里加 `/^\d{1,3}$/` 校验。**不做**，理由：加了 `--` 之后任意字符串都只是
+字面字符落进 pane 的 tty 行缓冲，且不发 Enter、不会执行；而同一套鉴权下 `POST /messages` 本来就能塞
+任意文本**并且**替你按回车。数字校验拦住的是一个危害严格小于既有端点的场景，属于「为不会造成后果的
+情形加校验」。设计里那句「只能送字面字符」由 `--` 本身兑现。
+
+**Important #2 —— 新路由没有 HTTP 级测试。** `api.ts` 发 `{key}` 与 `routes.ts` 读 `.key` 若字段错配，
+单测全绿而运行时 500。补两条 inject。
+
+**Minor #3 —— 「不追加 Enter」只在 fake 边界被断言。** 提到现在做：`vitest.config.ts` 的
+`include: ['test/**/*.test.ts']` 让 `test/integration/tmux.test.ts` 进默认 run，那里已有真 tmux +
+`cat >> OUT` 夹具，可以把「没有 `0x0d`」钉成自动化断言（也契合本项目「交互功能要有自动化验证手段」）。
+
+- [ ] **Step 11: `--` 终止选项解析**
+
+`src/adapters/tmux.ts` 的 `sendLiteral`：
+
+```ts
+  // send-keys -l 关掉键名查找、按字面 UTF-8 处理, 因此发不出 Escape/Up/Enter, 只能送字面字符。
+  // `--` 终止选项解析, 否则前导 `-` 的 text(如 "-R")会被 getopt 当 flag 吃掉。
+  async sendLiteral(name: string, text: string): Promise<void> {
+    await this.run(['send-keys', '-l', '-t', name, '--', text]);
+  }
+```
+
+- [ ] **Step 12: 真 tmux 上钉死「不追加 Enter」**
+
+`test/integration/tmux.test.ts` 加一个**独立会话名与独立 OUT 路径**的 `it`（不要复用现有 `NAME` / `OUT`，
+现有那条测试结尾会 kill 掉会话）。断言链条：`sendLiteral` 后 `cat` 收不到任何东西（字符还压在 tty 行
+缓冲里，说明没有换行/回车被送达），而 `capturePane` 已经能看到它；随后用 `sendText` 补一次真回车，
+两段字符应作为**同一行**被交付。
+
+```ts
+  it('sendLiteral 不追加 Enter（真 tmux 字节级）', async () => {
+    const name = NAME + '-lit';
+    const out = OUT + '-lit';
+    try {
+      await tmux.newSession(name, process.cwd(), ['sh', '-c', `cat >> ${out}`]);
+      await tmux.sendLiteral(name, 'abc');
+      await new Promise(r => setTimeout(r, 500));
+      // 没有回车 => cat 的行缓冲不 flush => 文件根本没被创建/仍为空
+      expect(existsSync(out) ? readFileSync(out, 'utf8') : '').toBe('');
+      expect(await tmux.capturePane(name)).toContain('abc');
+      // 补一次带回车的发送 => 两段字符同一行交付, 证明 abc 之后确实没有过换行
+      await tmux.sendText(name, 'def');
+      await new Promise(r => setTimeout(r, 500));
+      expect(readFileSync(out, 'utf8')).toBe('abcdef\n');
+    } finally {
+      try { await tmux.killSession(name); } catch { /* ignore */ }
+      try { if (existsSync(out)) rmSync(out); } catch { /* ignore */ }
+    }
+  });
+```
+
+- [ ] **Step 13: 路由组件测试**
+
+`test/component/routes.test.ts` 的 `describe('mutations (C2)')` 里加两条，形状照该 describe 现有两条
+（`app()` 帮手、`h` 头、`fastify.inject`）：
+
+```ts
+  it('prompt answer returns 202 and reaches the plane literally', async () => {
+    const { fastify, plane } = await app();
+    const h = { authorization: 'Bearer secret' };
+    const c = await fastify.inject({ method: 'POST', url: '/api/sessions', headers: h, payload: { cwd: '/w' } });
+    const id = c.json().sessionId;
+    const r = await fastify.inject({ method: 'POST', url: `/api/sessions/${id}/prompt`, headers: h, payload: { key: '2' } });
+    expect(r.statusCode).toBe(202);
+    expect((plane as any).d.tmux.literal.at(-1).text).toBe('2');   // 字段错配会在这里暴露
+  });
+  it('prompt answer maps domain errors (404)', async () => {
+    const { fastify } = await app();
+    const r = await fastify.inject({ method: 'POST', url: '/api/sessions/nope/prompt', headers: { authorization: 'Bearer secret' }, payload: { key: '1' } });
+    expect(r.statusCode).toBe(404);
+    expect(r.json().error.code).toBe('NOT_FOUND');
+  });
+```
+
+`plane as any` 那行若与该文件既有风格不符（例如 `app()` 可以顺手把 `tmux` 一起返回），改成返回
+`tmux` 更好；关键是必须断言到达的 `text` 等于 `'2'`，光断 202 抓不住字段错配。
+
+- [ ] **Step 14: 全量绿 + 提交**
+
+```bash
+/Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/typescript/bin/tsc --noEmit
+/Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json
+/Users/l/.nvm/versions/node/v24.18.0/bin/node ./node_modules/vitest/vitest.mjs run
+```
+Expected: 三条都 PASS（integration 的 tmux 测试需要本机有 tmux，本项目一直如此）。
+
+```bash
+git add -A
+git commit -m "fix(control): sendLiteral 用 -- 终止选项解析，补路由与真 tmux 字节级测试"
+```
+
 ---
 
 ### Task 2: 两个端口 + ClaudeSource
