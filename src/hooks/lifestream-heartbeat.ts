@@ -1,10 +1,9 @@
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Heartbeat } from '../domain/heartbeat.js';
 
-export interface HeartbeatPayload { sessionId: string; cwd: string; event: string; ts: number }
-
-export function heartbeatPayload(raw: string, now: number): HeartbeatPayload | null {
+export function heartbeatPayload(raw: string, now: number): Heartbeat | null {
   let o: any;
   try { o = JSON.parse(raw); } catch { return null; }
   const sessionId = o?.sessionId ?? o?.session_id;
@@ -17,7 +16,7 @@ export function heartbeatPayload(raw: string, now: number): HeartbeatPayload | n
   };
 }
 
-export function writeHeartbeat(dir: string, p: HeartbeatPayload): void {
+export function writeHeartbeat(dir: string, p: Heartbeat): void {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${p.sessionId}.json`), JSON.stringify(p));
 }

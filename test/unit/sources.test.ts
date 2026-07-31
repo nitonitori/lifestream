@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { ClaudeSource } from '../../src/adapters/sources/claude.js';
 import { QoderCliSource } from '../../src/adapters/sources/qoder-cli.js';
+import { QoderIdeSource, QoderWorkSource } from '../../src/adapters/sources/qoder-desktop.js';
 import { flatSessionIdForPath } from '../../src/adapters/sources/base.js';
 import { isControllable } from '../../src/ports/index.js';
 
@@ -190,5 +191,89 @@ describe('QoderCliSource', () => {
     const s = new QoderCliSource(home(), 'qodercli');
     expect(s.sessionIdForPath('-Users-l/abc.jsonl')).toBe('abc');
     expect(s.sessionIdForPath('-Users-l/transcript/abc.jsonl')).toBeNull();
+  });
+});
+
+const NOW = 1785400000000;
+const TTL = 30 * 60 * 1000;
+
+const hbFile = (dir: string, sessionId: string, event: string, ts = NOW) => {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${sessionId}.json`),
+    JSON.stringify({ sessionId, cwd: '/Users/l/dev/foo', event, ts }));
+};
+
+const ideTranscript = (h: string, name: string) => {
+  const dir = join(h, 'projects', '-Users-l-dev-foo', 'transcript');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, name), '{}\n');
+};
+
+describe('QoderWorkSource', () => {
+  const mk = (h: string, hb: string) =>
+    new QoderWorkSource({ home: h, heartbeatDir: hb, ttlMs: TTL, now: () => NOW });
+
+  test('只读：isControllable 为 false', () => {
+    expect(isControllable(mk(home(), home()))).toBe(false);
+  });
+
+  test('心跳给出枚举、cwd 与状态', async () => {
+    const h = home(); const hb = join(home(), 'hb');
+    hbFile(hb, 'w1', 'PreToolUse');
+    const live = await mk(h, hb).readLiveSessions();
+    expect(live).toHaveLength(1);
+    expect(live[0]).toMatchObject({
+      sessionId: 'w1', kernel: 'qoderwork', cwd: '/Users/l/dev/foo', status: 'busy',
+    });
+  });
+
+  test('Stop 之后与超出 TTL 的都不列出', async () => {
+    const h = home(); const hb = join(home(), 'hb');
+    hbFile(hb, 'stopped', 'Stop');
+    hbFile(hb, 'stale', 'PreToolUse', NOW - TTL - 1);
+    expect(await mk(h, hb).readLiveSessions()).toEqual([]);
+  });
+
+  test('没有转录的新会话也列出（不做转录过滤）', async () => {
+    const h = home(); const hb = join(home(), 'hb');
+    hbFile(hb, 'brandnew', 'SessionStart');
+    expect((await mk(h, hb).readLiveSessions()).map(x => x.sessionId)).toEqual(['brandnew']);
+  });
+});
+
+describe('QoderIdeSource', () => {
+  const mk = (h: string, hb: string) =>
+    new QoderIdeSource({ home: h, heartbeatDir: hb, ttlMs: TTL, now: () => NOW });
+
+  test('只读：isControllable 为 false', () => {
+    expect(isControllable(mk(home(), home()))).toBe(false);
+  });
+
+  test('只认 transcript/ 下有转录的心跳（滤掉共用 settings 带来的 qodercli 会话）', async () => {
+    const h = home(); const hb = join(home(), 'hb');
+    ideTranscript(h, 'ide1.jsonl');
+    hbFile(hb, 'ide1', 'PostToolUse');
+    hbFile(hb, 'cli1', 'PostToolUse');       // qodercli 的会话：transcript/ 下没有它
+    const live = await mk(h, hb).readLiveSessions();
+    expect(live.map(x => x.sessionId)).toEqual(['ide1']);
+    expect(live[0]!.kernel).toBe('qoder-ide');
+  });
+
+  test('Quest 会话按 task-* 后缀定位转录', async () => {
+    const h = home(); const hb = join(home(), 'hb');
+    const id = 'task-0123456789abcdef0123';
+    ideTranscript(h, `${id}.session.execution.jsonl`);
+    hbFile(hb, id, 'PreToolUse');
+    expect((await mk(h, hb).readLiveSessions()).map(x => x.sessionId)).toEqual([id]);
+    expect(await mk(h, hb).locateTranscript(id)).toContain(`${id}.session.execution.jsonl`);
+  });
+
+  test('sessionIdForPath 只认 transcript/ 一层，Quest 名剥掉整个后缀', () => {
+    const s = mk(home(), home());
+    expect(s.sessionIdForPath('-Users-l/transcript/abc.jsonl')).toBe('abc');
+    expect(s.sessionIdForPath('-Users-l/transcript/task-0123456789abcdef0123.session.execution.jsonl'))
+      .toBe('task-0123456789abcdef0123');
+    expect(s.sessionIdForPath('-Users-l/abc.jsonl')).toBeNull();
+    expect(s.sessionIdForPath('-Users-l/transcript/abc.json')).toBeNull();
   });
 });

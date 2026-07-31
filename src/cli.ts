@@ -5,6 +5,8 @@ import { loadConfig, type Config } from './config.js';
 import { ControlPlane } from './domain/control-plane.js';
 import { ClaudeSource } from './adapters/sources/claude.js';
 import { QoderCliSource } from './adapters/sources/qoder-cli.js';
+import { QoderIdeSource, QoderWorkSource } from './adapters/sources/qoder-desktop.js';
+import { heartbeatDir } from './domain/qoder-hooks.js';
 import { Tmux } from './adapters/tmux.js';
 import { FileManagedRegistry } from './adapters/managed-registry.js';
 import { SystemClock } from './adapters/clock.js';
@@ -15,6 +17,18 @@ export function buildPlane(cfg: Config): ControlPlane {
     sources: [
       new ClaudeSource(cfg.paths.claudeHome, cfg.claude.bin, cfg.claude.sessionPermissionMode),
       new QoderCliSource(cfg.qoder.qoderHome, cfg.qoder.cliBin, cfg.qoder.cliPermissionMode),
+      new QoderWorkSource({
+        home: cfg.qoder.qoderWorkHome,
+        heartbeatDir: heartbeatDir(cfg.paths.stateDir, 'qoderwork'),
+        ttlMs: cfg.qoder.heartbeatTtlMs,
+        now: () => Date.now(),
+      }),
+      new QoderIdeSource({
+        home: cfg.qoder.qoderHome,
+        heartbeatDir: heartbeatDir(cfg.paths.stateDir, 'qoder-ide'),
+        ttlMs: cfg.qoder.heartbeatTtlMs,
+        now: () => Date.now(),
+      }),
     ],
     registry: new FileManagedRegistry(join(cfg.paths.stateDir, 'managed.json')),
     clock: new SystemClock(),
