@@ -8,8 +8,8 @@ function make(responder?: (k: string, t: string) => Promise<string> | string) {
   const pending = new InMemoryPendingStore();
   const clock = new FakeClock(1000);
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
-    clock, claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'id-xxxxxxxx',
+    tmux: new FakeTmux(), sources: [new FakeSource()], registry: new InMemoryManagedRegistry(),
+    clock, newSessionId: () => 'id-xxxxxxxx',
   });
   if (responder) agent.responder = responder;
   const c = new AgentConductor({ agent, plane, pending, clock, confirmWords: ['确认', 'yes'], cancelWords: ['取消'], confirmTtlMs: 5000 });

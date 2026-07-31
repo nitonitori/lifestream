@@ -9,8 +9,8 @@ it('plane events broadcast over SSE (F1)', () => {
   const frames: string[] = [];
   sse.add({ write: (s: string) => frames.push(s) } as any);
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
-    clock: new FakeClock(), claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'x',
+    tmux: new FakeTmux(), sources: [new FakeSource()], registry: new InMemoryManagedRegistry(),
+    clock: new FakeClock(), newSessionId: () => 'x',
   });
   wireSse(plane, sse);
   plane.emit('event', { type: 'session.removed', sessionId: 'gone' });
@@ -23,8 +23,8 @@ it('message events use message channel', () => {
   const frames: string[] = [];
   sse.add({ write: (s: string) => frames.push(s) } as any);
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
-    clock: new FakeClock(), claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'x',
+    tmux: new FakeTmux(), sources: [new FakeSource()], registry: new InMemoryManagedRegistry(),
+    clock: new FakeClock(), newSessionId: () => 'x',
   });
   wireSse(plane, sse);
   plane.emit('event', { type: 'message', sessionId: 's1', event: { kind: 'user', uuid: 'u', ts: 0, text: 'hi', raw: {} } });

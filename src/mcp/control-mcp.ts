@@ -73,11 +73,17 @@ export async function buildMcpServer(d: McpDeps): Promise<any> {
 
   if (d.mode === 'direct') {
     server.tool('send_to_session', { sessionId: z.string(), text: z.string() }, wrap(tools.send_to_session));
-    server.tool('create_session', { cwd: z.string(), name: z.string().optional(), model: z.string().optional(), initialPrompt: z.string().optional() }, wrap(tools.create_session));
+    server.tool('create_session', {
+      cwd: z.string(), name: z.string().optional(), model: z.string().optional(), initialPrompt: z.string().optional(),
+      kernel: z.enum(['claude', 'qodercli', 'qoderwork', 'qoder-ide']).optional(),
+    }, wrap(tools.create_session));
     server.tool('adopt_session', { sessionId: z.string(), force: z.boolean().optional() }, wrap(tools.adopt_session));
   } else {
     server.tool('propose_send_to_session', { sessionId: z.string(), text: z.string() }, wrap(tools.propose_send_to_session));
-    server.tool('propose_create_session', { cwd: z.string(), name: z.string().optional(), model: z.string().optional(), initialPrompt: z.string().optional() }, wrap(tools.propose_create_session));
+    server.tool('propose_create_session', {
+      cwd: z.string(), name: z.string().optional(), model: z.string().optional(), initialPrompt: z.string().optional(),
+      kernel: z.enum(['claude', 'qodercli', 'qoderwork', 'qoder-ide']).optional(),
+    }, wrap(tools.propose_create_session));
     server.tool('propose_adopt_session', { sessionId: z.string(), force: z.boolean().optional() }, wrap(tools.propose_adopt_session));
   }
   return server;

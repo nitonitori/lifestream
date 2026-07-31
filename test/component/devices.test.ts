@@ -6,8 +6,8 @@ import { FakeClock, FakeTmux, FakeSource, InMemoryManagedRegistry, InMemoryDevic
 
 async function app() {
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
-    clock: new FakeClock(), claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'x',
+    tmux: new FakeTmux(), sources: [new FakeSource()], registry: new InMemoryManagedRegistry(),
+    clock: new FakeClock(), newSessionId: () => 'x',
   });
   const devices = new InMemoryDeviceStore();
   let n = 0, t = 0;

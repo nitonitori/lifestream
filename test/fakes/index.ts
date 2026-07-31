@@ -1,5 +1,5 @@
 import type {
-  Clock, TmuxAdapter, TmuxSessionInfo, ControllableSource, ManagedRegistry, ManagedEntry,
+  Clock, TmuxAdapter, TmuxSessionInfo, AgentSource, ControllableSource, ManagedRegistry, ManagedEntry,
   PendingActionStore, ImAdapter, InboundMessage, AgentRunner, DeviceStore, Device,
 } from '../../src/ports/index.js';
 import type { CreateSessionOptions, Kernel, LiveSession, PendingAction } from '../../src/domain/types.js';
@@ -67,6 +67,24 @@ export class FakeSource implements ControllableSource {
   resumeCommand(sessionId: string): string[] {
     return [this.bin, '--resume', sessionId, '--permission-mode', this.permissionMode];
   }
+}
+
+// 只读内核（桌面 app）的替身：不实现 launchCommand / resumeCommand，isControllable 判它为只读。
+export class FakeReadonlySource implements AgentSource {
+  constructor(readonly kernel: Kernel) {}
+
+  live: LiveSession[] = [];
+  async readLiveSessions() { return this.live; }
+  async locateTranscript() { return null; }
+  async readTranscript() { return []; }
+  async readTranscriptFrom() { return { lines: [], offset: 0 }; }
+
+  watched: ((changedPath: string) => void)[] = [];
+  watchProjects(cb: (changedPath: string) => void): () => void {
+    this.watched.push(cb);
+    return () => { this.watched = this.watched.filter(x => x !== cb); };
+  }
+  sessionIdForPath(p: string): string | null { return flatSessionIdForPath(p); }
 }
 
 export class InMemoryManagedRegistry implements ManagedRegistry {

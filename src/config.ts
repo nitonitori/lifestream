@@ -26,6 +26,7 @@ export function loadConfig(file = 'lifestream.config.json'): Config {
   return {
     web: { host: '127.0.0.1', port: 8787, token: '', ...(raw.web ?? {}) },
     tmux: { bin: 'tmux', socket: 'lifestream', ...(raw.tmux ?? {}) },
+    // sessionPermissionMode 默认 bypassPermissions：远程无键盘，否则会话会卡在“This command requires approval”而 Web 无法应答。
     claude: { bin: 'claude', defaultModel: null, agentPermissionMode: 'bypassPermissions', sessionPermissionMode: 'bypassPermissions', ...(raw.claude ?? {}) },
     paths: {
       claudeHome: expand(raw.paths?.claudeHome ?? '~/.claude'),

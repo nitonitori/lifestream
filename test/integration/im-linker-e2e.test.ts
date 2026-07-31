@@ -34,8 +34,8 @@ function wire(commandPrefix = '/ai') {
   const pending = new InMemoryPendingStore();
   const clock = new SystemClock();
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
-    clock, claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'id-xxxxxxxx',
+    tmux: new FakeTmux(), sources: [new FakeSource()], registry: new InMemoryManagedRegistry(),
+    clock, newSessionId: () => 'id-xxxxxxxx',
   });
   const agent = new ClaudeAgentRunner({ claudeBin, mcpConfigPath, stateDir });
   const conductor = new AgentConductor({

@@ -9,8 +9,8 @@ import { dirname, join } from 'node:path';
 it('serves index.html at / (C4)', async () => {
   const webRoot = join(dirname(fileURLToPath(import.meta.url)), '../../web/public');
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
-    clock: new FakeClock(), claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'x',
+    tmux: new FakeTmux(), sources: [new FakeSource()], registry: new InMemoryManagedRegistry(),
+    clock: new FakeClock(), newSessionId: () => 'x',
   });
   const app = await buildHttp({ plane, token: 't', sse: new SseHub(), devices: new InMemoryDeviceStore(), webRoot });
   const r = await app.inject({ method: 'GET', url: '/' });

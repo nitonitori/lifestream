@@ -8,8 +8,8 @@ import { FakeClock, FakeTmux, FakeSource, InMemoryManagedRegistry, InMemoryPendi
 async function app(responder?: (k: string, t: string) => string) {
   const clock = new FakeClock(1000);
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
-    clock, claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'id-1234abcd',
+    tmux: new FakeTmux(), sources: [new FakeSource()], registry: new InMemoryManagedRegistry(),
+    clock, newSessionId: () => 'id-1234abcd',
   });
   const agent = new FakeAgent();
   if (responder) agent.responder = responder;

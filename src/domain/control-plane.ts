@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { TmuxAdapter, AgentSource, ManagedRegistry, Clock, ManagedEntry } from '../ports/index.js';
 import { isControllable } from '../ports/index.js';
-import type { Kernel, SessionSummary, SessionDetail, TranscriptEvent, PlaneEvent } from './types.js';
+import type { Kernel, CreateSessionOptions, SessionSummary, SessionDetail, TranscriptEvent, PlaneEvent } from './types.js';
 import { NotFoundError, NotControllableError, ConflictError } from './errors.js';
 import { parseTranscript } from './transcript-parser.js';
 import { buildSummaries } from './session-discovery.js';
@@ -11,65 +11,104 @@ export function tmuxNameFor(id: string) { return 'lifestream-' + id.slice(0, 8);
 
 interface Deps {
   tmux: TmuxAdapter;
-  home: AgentSource;
+  sources: AgentSource[];
   registry: ManagedRegistry;
   clock: Clock;
-  claudeBin: string;
-  tmuxSocket: string;
   newSessionId: () => string;
   pollIntervalMs?: number;
-  // 受控会话（新建/接管）默认权限模式。远程无键盘，默认给 bypassPermissions，
-  // 否则 claude 会卡在“This command requires approval”而 Web 无法应答。
-  sessionPermissionMode?: string;
+  readonlyPollIntervalMs?: number;
   // 结束原进程用（接管存活会话时）。默认 SIGTERM；测试可注入。
   killProcess?: (pid: number) => void;
 }
 
 export class ControlPlane extends EventEmitter {
-  private lastSeen = new Set<string>();
+  private readonly lastSeen = new Map<Kernel, Set<string>>();
   private emittedUuids = new Map<string, Set<string>>();
-  private timer?: NodeJS.Timeout;
-  private unwatch?: () => void;
+  private readonly byKernel = new Map<Kernel, AgentSource>();
+  private readonly kernelOf = new Map<string, Kernel>();
+  private timers: NodeJS.Timeout[] = [];
+  private unwatchers: (() => void)[] = [];
 
-  constructor(private d: Deps) { super(); }
+  constructor(private d: Deps) {
+    super();
+    for (const s of d.sources) this.byKernel.set(s.kernel, s);
+  }
 
   private emitEvent(e: PlaneEvent) { this.emit('event', e); }
 
-  private async activityMap(ids: Iterable<string>): Promise<Map<string, number>> {
+  private async sourceOf(id: string): Promise<AgentSource> {
+    const cached = this.kernelOf.get(id);
+    if (cached) { const s = this.byKernel.get(cached); if (s) return s; }
+    const entry = await this.d.registry.get(id);
+    if (entry) {
+      const s = this.byKernel.get(entry.kernel);
+      if (s) { this.kernelOf.set(id, s.kernel); return s; }
+    }
+    // 转录探测先于 live 枚举：qodercli 的 readLiveSessions 要走一遍整棵 logs/sessions。
+    for (const s of this.d.sources) {
+      if (await s.locateTranscript(id)) { this.kernelOf.set(id, s.kernel); return s; }
+    }
+    for (const s of this.d.sources) {
+      const live = await s.readLiveSessions();
+      if (live.some(l => l.sessionId === id)) { this.kernelOf.set(id, s.kernel); return s; }
+    }
+    throw new NotFoundError('session not found: ' + id);
+  }
+
+  private async isLive(id: string): Promise<boolean> {
+    for (const s of this.d.sources) {
+      const live = await s.readLiveSessions();
+      if (live.some(l => l.sessionId === id)) return true;
+    }
+    return false;
+  }
+
+  private async activityMap(ids: Map<string, Kernel>): Promise<Map<string, number>> {
     const activity = new Map<string, number>();
-    for (const id of ids) {
-      const p = await this.d.home.locateTranscript(id);
+    for (const [id, kernel] of ids) {
+      const src = this.byKernel.get(kernel);
+      if (!src) continue;
+      const p = await src.locateTranscript(id);
       if (!p) continue;
-      const last = parseTranscript(await this.d.home.readTranscript(p)).at(-1);
+      const last = parseTranscript(await src.readTranscript(p)).at(-1);
       if (last?.ts) activity.set(id, last.ts);
     }
     return activity;
   }
 
-  async listSessions(): Promise<SessionSummary[]> {
-    const live = await this.d.home.readLiveSessions();
-    const managed = await this.d.registry.list();
+  private async summarize(sources: AgentSource[]): Promise<SessionSummary[]> {
+    const kernels = new Set(sources.map(s => s.kernel));
+    const live = (await Promise.all(sources.map(s => s.readLiveSessions()))).flat();
+    const managed = (await this.d.registry.list()).filter(m => kernels.has(m.kernel));
     const tmuxNames = new Set((await this.d.tmux.listSessions()).map(t => t.name));
-    const ids = new Set<string>([...live.map(l => l.sessionId), ...managed.map(m => m.sessionId)]);
+    const ids = new Map<string, Kernel>();
+    for (const m of managed) ids.set(m.sessionId, m.kernel);
+    for (const l of live) ids.set(l.sessionId, l.kernel);
+    for (const [id, k] of ids) this.kernelOf.set(id, k);
     const activity = await this.activityMap(ids);
     return buildSummaries({
       live, managed, tmuxNames, activity,
-      adoptable: isControllable(this.d.home) ? new Set<Kernel>([this.d.home.kernel]) : new Set<Kernel>(),
+      adoptable: new Set<Kernel>(sources.filter(isControllable).map(s => s.kernel)),
     });
   }
+
+  async listSessions(): Promise<SessionSummary[]> { return this.summarize(this.d.sources); }
 
   async getSession(id: string): Promise<SessionDetail> {
     const s = (await this.listSessions()).find(x => x.sessionId === id);
     if (!s) throw new NotFoundError('session not found: ' + id);
-    const path = await this.d.home.locateTranscript(id);
-    const count = path ? parseTranscript(await this.d.home.readTranscript(path)).length : 0;
+    const src = await this.sourceOf(id);
+    const path = await src.locateTranscript(id);
+    const count = path ? parseTranscript(await src.readTranscript(path)).length : 0;
     return { ...s, transcriptPath: path ?? undefined, messageCount: count };
   }
 
   async getMessages(id: string, opts: { sinceUuid?: string; limit?: number } = {}): Promise<TranscriptEvent[]> {
-    const path = await this.d.home.locateTranscript(id);
+    let src: AgentSource;
+    try { src = await this.sourceOf(id); } catch { return []; }
+    const path = await src.locateTranscript(id);
     if (!path) return [];
-    let events = parseTranscript(await this.d.home.readTranscript(path));
+    let events = parseTranscript(await src.readTranscript(path));
     if (opts.sinceUuid) {
       const idx = events.findIndex(e => e.uuid === opts.sinceUuid);
       if (idx >= 0) events = events.slice(idx + 1);
@@ -83,8 +122,7 @@ export class ControlPlane extends EventEmitter {
   private async managedTmuxName(id: string): Promise<string> {
     const entry = await this.d.registry.get(id);
     if (entry && await this.d.tmux.hasSession(entry.tmuxSession)) return entry.tmuxSession;
-    const live = await this.d.home.readLiveSessions();
-    if (live.some(l => l.sessionId === id)) {
+    if (await this.isLive(id)) {
       throw new NotControllableError('session is external/not managed; adopt it first: ' + id);
     }
     throw new NotFoundError('session not found: ' + id);
@@ -109,31 +147,32 @@ export class ControlPlane extends EventEmitter {
     await this.d.tmux.sendLiteral(await this.managedTmuxName(id), key);
   }
 
-  async createSession(opts: { cwd: string; name?: string; model?: string; permissionMode?: string; initialPrompt?: string }): Promise<SessionSummary> {
+  async createSession(opts: CreateSessionOptions): Promise<SessionSummary> {
+    const kernel = opts.kernel ?? 'claude';
+    const src = this.byKernel.get(kernel);
+    if (!src) throw new NotFoundError('no source for kernel: ' + kernel);
+    if (!isControllable(src)) throw new NotControllableError('kernel is read-only, cannot create session: ' + kernel);
     const id = this.d.newSessionId();
     const name = tmuxNameFor(id);
-    const mode = opts.permissionMode ?? this.d.sessionPermissionMode;
-    const cmd = [this.d.claudeBin, '--session-id', id];
-    if (opts.model) cmd.push('--model', opts.model);
-    if (mode) cmd.push('--permission-mode', mode);
-    if (opts.name) cmd.push('--name', opts.name);
+    const cmd = src.launchCommand(id, opts);
     await this.d.tmux.newSession(name, opts.cwd, cmd);
-    const entry: ManagedEntry = { sessionId: id, tmuxSession: name, cwd: opts.cwd, kernel: this.d.home.kernel, origin: 'managed', createdAt: this.d.clock.now() };
+    const entry: ManagedEntry = { sessionId: id, tmuxSession: name, cwd: opts.cwd, kernel, origin: 'managed', createdAt: this.d.clock.now() };
     await this.d.registry.put(entry);
+    this.kernelOf.set(id, kernel);
     if (opts.initialPrompt) await this.d.tmux.sendText(name, opts.initialPrompt);
     return {
-      sessionId: id, kernel: entry.kernel, name: opts.name, cwd: opts.cwd, status: 'unknown', origin: 'managed',
-      live: true, controllable: true, adoptable: isControllable(this.d.home), tmuxSession: name, createdAt: entry.createdAt,
+      sessionId: id, kernel, name: opts.name, cwd: opts.cwd, status: 'unknown', origin: 'managed',
+      live: true, controllable: true, adoptable: true, tmuxSession: name, createdAt: entry.createdAt,
     };
   }
 
-  private async resolveCwd(id: string): Promise<string> {
-    const live = await this.d.home.readLiveSessions();
+  private async resolveCwd(src: AgentSource, id: string): Promise<string> {
+    const live = await src.readLiveSessions();
     const l = live.find(x => x.sessionId === id);
     if (l?.cwd) return l.cwd;
-    const path = await this.d.home.locateTranscript(id);
+    const path = await src.locateTranscript(id);
     if (path) {
-      for (const line of await this.d.home.readTranscript(path)) {
+      for (const line of await src.readTranscript(path)) {
         try { const o = JSON.parse(line); if (o?.cwd) return o.cwd; } catch { /* skip */ }
       }
     }
@@ -141,7 +180,9 @@ export class ControlPlane extends EventEmitter {
   }
 
   async adoptSession(id: string, opts: { force?: boolean } = {}): Promise<SessionSummary> {
-    const live = await this.d.home.readLiveSessions();
+    const src = await this.sourceOf(id);
+    if (!isControllable(src)) throw new NotControllableError('kernel is read-only, cannot adopt: ' + src.kernel);
+    const live = await src.readLiveSessions();
     const liveMatches = live.filter(l => l.sessionId === id);
     if (liveMatches.length && !opts.force) {
       throw new ConflictError('session still running; exit its window first or use force: ' + id);
@@ -153,16 +194,15 @@ export class ControlPlane extends EventEmitter {
       for (const l of liveMatches) if (l.pid) this.killPid(l.pid);
       await this.waitForSessionGone(id);
     }
-    const cwd = cwdHint ?? await this.resolveCwd(id);
+    const cwd = cwdHint ?? await this.resolveCwd(src, id);
     const name = tmuxNameFor(id);
-    const cmd = [this.d.claudeBin, '--resume', id];
-    if (this.d.sessionPermissionMode) cmd.push('--permission-mode', this.d.sessionPermissionMode);
+    const cmd = src.resumeCommand(id);
     await this.d.tmux.newSession(name, cwd, cmd);
     const createdAt = this.d.clock.now();
-    await this.d.registry.put({ sessionId: id, tmuxSession: name, cwd, kernel: this.d.home.kernel, origin: 'adopted', createdAt });
+    await this.d.registry.put({ sessionId: id, tmuxSession: name, cwd, kernel: src.kernel, origin: 'adopted', createdAt });
     return {
-      sessionId: id, kernel: this.d.home.kernel, cwd, status: 'unknown', origin: 'adopted',
-      live: true, controllable: true, adoptable: isControllable(this.d.home), tmuxSession: name, createdAt,
+      sessionId: id, kernel: src.kernel, cwd, status: 'unknown', origin: 'adopted',
+      live: true, controllable: true, adoptable: true, tmuxSession: name, createdAt,
     };
   }
 
@@ -174,8 +214,7 @@ export class ControlPlane extends EventEmitter {
   // 轮询直到该 session id 从 live 注册表消失（原进程已释放），最多约 3s 后仍继续。
   private async waitForSessionGone(id: string, tries = 15, delayMs = 200): Promise<void> {
     for (let i = 0; i < tries; i++) {
-      const live = await this.d.home.readLiveSessions();
-      if (!live.some(l => l.sessionId === id)) return;
+      if (!await this.isLive(id)) return;
       await new Promise(r => setTimeout(r, delayMs));
     }
   }
@@ -187,30 +226,41 @@ export class ControlPlane extends EventEmitter {
     if (entry) {
       if (await this.d.tmux.hasSession(entry.tmuxSession)) await this.d.tmux.killSession(entry.tmuxSession);
       await this.d.registry.remove(id);
-      this.lastSeen.delete(id);
+      this.lastSeen.get(entry.kernel)?.delete(id);
       this.emitEvent({ type: 'session.removed', sessionId: id });
       return;
     }
-    const live = await this.d.home.readLiveSessions();
-    if (live.some(l => l.sessionId === id)) {
+    if (await this.isLive(id)) {
       throw new NotControllableError('外部会话无法删除，请在其所属终端退出: ' + id);
     }
     throw new NotFoundError('session not found: ' + id);
   }
 
-  async pollOnce(): Promise<void> {
-    const summaries = await this.listSessions();
-    const now = new Set(summaries.map(s => s.sessionId));
-    for (const s of summaries) this.emitEvent({ type: 'session.updated', session: s });
-    for (const id of this.lastSeen) if (!now.has(id)) this.emitEvent({ type: 'session.removed', sessionId: id });
-    this.lastSeen = now;
+  // 消失判定只在本组内做，否则只读组的慢节拍轮询会把可控组的会话误判为消失。
+  private async pollSources(group: AgentSource[]): Promise<void> {
+    const list = await this.summarize(group);
+    for (const s of list) this.emitEvent({ type: 'session.updated', session: s });
+    for (const src of group) {
+      const seen = this.lastSeen.get(src.kernel) ?? new Set<string>();
+      const now = new Set(list.filter(x => x.kernel === src.kernel).map(x => x.sessionId));
+      for (const id of seen) if (!now.has(id)) this.emitEvent({ type: 'session.removed', sessionId: id });
+      this.lastSeen.set(src.kernel, now);
+    }
   }
 
+  async pollOnce(): Promise<void> { await this.pollSources(this.d.sources); }
+
   async ingestTranscript(id: string): Promise<void> {
-    const path = await this.d.home.locateTranscript(id);
+    let src: AgentSource;
+    try { src = await this.sourceOf(id); } catch { return; }
+    await this.ingestFrom(src, id);
+  }
+
+  private async ingestFrom(src: AgentSource, id: string): Promise<void> {
+    const path = await src.locateTranscript(id);
     if (!path) return;
     const seen = this.emittedUuids.get(id) ?? new Set<string>();
-    for (const e of parseTranscript(await this.d.home.readTranscript(path))) {
+    for (const e of parseTranscript(await src.readTranscript(path))) {
       if (e.uuid && seen.has(e.uuid)) continue;
       if (e.uuid) seen.add(e.uuid);
       this.emitEvent({ type: 'message', sessionId: id, event: e });
@@ -219,16 +269,27 @@ export class ControlPlane extends EventEmitter {
   }
 
   async start(): Promise<void> {
+    const ctl = this.d.sources.filter(isControllable);
+    const ro = this.d.sources.filter(s => !isControllable(s));
     await this.pollOnce();
-    this.timer = setInterval(() => { void this.pollOnce(); }, this.d.pollIntervalMs ?? 2000);
-    this.unwatch = this.d.home.watchProjects((changed) => {
-      const m = changed.match(/([0-9a-f-]{36})\.jsonl$/i);
-      if (m) void this.ingestTranscript(m[1]);
-    });
+    if (ctl.length > 0) {
+      this.timers.push(setInterval(() => { void this.pollSources(ctl); }, this.d.pollIntervalMs ?? 2000));
+    }
+    if (ro.length > 0) {
+      this.timers.push(setInterval(() => { void this.pollSources(ro); }, this.d.readonlyPollIntervalMs ?? 5000));
+    }
+    for (const s of this.d.sources) {
+      this.unwatchers.push(s.watchProjects((changed) => {
+        const id = s.sessionIdForPath(changed);
+        if (id) void this.ingestFrom(s, id);
+      }));
+    }
   }
 
   async stop(): Promise<void> {
-    if (this.timer) clearInterval(this.timer);
-    this.unwatch?.();
+    for (const t of this.timers) clearInterval(t);
+    this.timers = [];
+    for (const u of this.unwatchers) u();
+    this.unwatchers = [];
   }
 }

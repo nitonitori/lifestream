@@ -7,8 +7,8 @@ import { FakeClock, FakeTmux, FakeSource, InMemoryManagedRegistry, InMemoryDevic
 async function app() {
   const tmux = new FakeTmux();
   const plane = new ControlPlane({
-    tmux, home: new FakeSource(), registry: new InMemoryManagedRegistry(),
-    clock: new FakeClock(), claudeBin: 'claude', tmuxSocket: 's', newSessionId: () => 'id-1234abcd',
+    tmux, sources: [new FakeSource()], registry: new InMemoryManagedRegistry(),
+    clock: new FakeClock(), newSessionId: () => 'id-1234abcd',
   });
   const fastify = await buildHttp({ plane, token: 'secret', sse: new SseHub(), devices: new InMemoryDeviceStore() });
   return { fastify, plane, tmux };

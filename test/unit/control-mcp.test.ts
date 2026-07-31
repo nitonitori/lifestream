@@ -5,8 +5,8 @@ import { FakeClock, FakeTmux, FakeSource, InMemoryManagedRegistry, InMemoryPendi
 
 function setup(mode: 'direct' | 'im') {
   const plane = new ControlPlane({
-    tmux: new FakeTmux(), home: new FakeSource(), registry: new InMemoryManagedRegistry(),
-    clock: new FakeClock(1), claudeBin: 'c', tmuxSocket: 's', newSessionId: () => 'idaaaaaaaa',
+    tmux: new FakeTmux(), sources: [new FakeSource()], registry: new InMemoryManagedRegistry(),
+    clock: new FakeClock(1), newSessionId: () => 'idaaaaaaaa',
   });
   const pending = new InMemoryPendingStore();
   const tools = makeTools({ plane, mode, pending, conversationId: 'conv1', clock: new FakeClock(1), newId: () => 'act1' });

@@ -11,14 +11,10 @@ import { SystemClock } from './adapters/clock.js';
 export function buildPlane(cfg: Config): ControlPlane {
   return new ControlPlane({
     tmux: new Tmux(cfg.tmux.socket, cfg.tmux.bin),
-    // bin / permissionMode 同时传给 source 与 Deps：Deps 上的两项 Task 3 才拆掉。
-    home: new ClaudeSource(cfg.paths.claudeHome, cfg.claude.bin, cfg.claude.sessionPermissionMode),
+    sources: [new ClaudeSource(cfg.paths.claudeHome, cfg.claude.bin, cfg.claude.sessionPermissionMode)],
     registry: new FileManagedRegistry(join(cfg.paths.stateDir, 'managed.json')),
     clock: new SystemClock(),
-    claudeBin: cfg.claude.bin,
-    tmuxSocket: cfg.tmux.socket,
     newSessionId: () => randomUUID(),
-    sessionPermissionMode: cfg.claude.sessionPermissionMode,
   });
 }
 

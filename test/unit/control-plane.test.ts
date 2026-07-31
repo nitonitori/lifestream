@@ -1,22 +1,26 @@
 import { describe, it, expect } from 'vitest';
 import { ControlPlane } from '../../src/domain/control-plane.js';
-import { FakeClock, FakeTmux, FakeSource, InMemoryManagedRegistry } from '../fakes/index.js';
+import { FakeClock, FakeTmux, FakeSource, FakeReadonlySource, InMemoryManagedRegistry } from '../fakes/index.js';
 import { NotFoundError, NotControllableError, ConflictError } from '../../src/domain/errors.js';
 import { userLine } from '../fixtures/transcript-lines.js';
 
-function make() {
+// 不传 sources 时行为与单 source（home）时代完全一致；多 source 用例显式传一组替身。
+function make(sources?: (FakeSource | FakeReadonlySource)[]) {
   const tmux = new FakeTmux();
   const home = new FakeSource();
+  const all = sources ?? [home];
   const registry = new InMemoryManagedRegistry();
   const clock = new FakeClock(5000);
   const killed: number[] = [];
   // 模拟“杀掉原进程 → 该 live 会话随之消失”，让 waitForSessionGone 立即返回
-  const killProcess = (pid: number) => { killed.push(pid); home.live = home.live.filter(l => l.pid !== pid); };
+  const killProcess = (pid: number) => {
+    killed.push(pid);
+    for (const s of all) s.live = s.live.filter(l => l.pid !== pid);
+  };
   let n = 0;
   const plane = new ControlPlane({
-    tmux, home, registry, clock, claudeBin: 'claude', tmuxSocket: 'lifestream',
+    tmux, sources: all, registry, clock,
     newSessionId: () => `00000000-0000-0000-0000-00000000000${++n}`,
-    sessionPermissionMode: 'bypassPermissions',
     killProcess,
   });
   return { plane, tmux, home, registry, clock, killed };
@@ -196,6 +200,63 @@ describe('pollOnce events (B5)', () => {
     plane.on('event', e => events.push(e));
     await plane.pollOnce();
     expect(events).toContainEqual({ type: 'session.removed', sessionId: 's1' });
+  });
+});
+
+describe('多 source（Task 3）', () => {
+  it('listSessions 合并多个 source 的会话并带上各自 kernel', async () => {
+    const cc = new FakeSource('claude');
+    const q = new FakeSource('qodercli', 'qodercli', 'bypass_permissions');
+    cc.live = [{ sessionId: 'a', kernel: 'claude', cwd: '/tmp/a', status: 'idle', pid: 1 }];
+    q.live = [{ sessionId: 'b', kernel: 'qodercli', cwd: '/tmp/b', status: 'busy', pid: 2 }];
+    const { plane } = make([cc, q]);
+    const list = await plane.listSessions();
+    expect(list.map(x => `${x.sessionId}:${x.kernel}`).sort()).toEqual(['a:claude', 'b:qodercli']);
+  });
+
+  it('createSession 用目标 source 的方言拼命令', async () => {
+    const cc = new FakeSource('claude');
+    const q = new FakeSource('qodercli', 'qodercli', 'bypass_permissions');
+    const { plane, tmux } = make([cc, q]);
+    const s = await plane.createSession({ cwd: '/tmp', kernel: 'qodercli' });
+    expect(tmux.sessions.get('lifestream-' + s.sessionId.slice(0, 8))!.command)
+      .toEqual(['qodercli', '--session-id', s.sessionId, '--permission-mode', 'bypass_permissions']);
+  });
+
+  it('createSession 对只读内核抛 NotControllableError', async () => {
+    const { plane } = make([new FakeSource('claude'), new FakeReadonlySource('qoderwork')]);
+    await expect(plane.createSession({ cwd: '/tmp', kernel: 'qoderwork' }))
+      .rejects.toBeInstanceOf(NotControllableError);
+  });
+
+  it('adoptSession 对只读内核的活会话同样抛 NotControllableError', async () => {
+    const ro = new FakeReadonlySource('qoder-ide');
+    ro.live = [{ sessionId: 'ide1', kernel: 'qoder-ide', cwd: '/tmp/x', status: 'idle' }];
+    const { plane } = make([new FakeSource('claude'), ro]);
+    await expect(plane.adoptSession('ide1')).rejects.toBeInstanceOf(NotControllableError);
+  });
+
+  it('summarize 把只读内核的会话标成 adoptable: false', async () => {
+    const ro = new FakeReadonlySource('qoderwork');
+    ro.live = [{ sessionId: 'w1', kernel: 'qoderwork', cwd: '/tmp/w', status: 'idle' }];
+    const { plane } = make([new FakeSource('claude'), ro]);
+    const x = (await plane.listSessions()).find(s => s.sessionId === 'w1');
+    expect(x?.adoptable).toBe(false);
+  });
+
+  it('getMessages 对完全未知的 id 返回空数组', async () => {
+    const { plane } = make([new FakeSource('claude')]);
+    expect(await plane.getMessages('nope')).toEqual([]);
+  });
+
+  it('start 给每个 source 各装一个 watcher，按 sessionIdForPath 归属', async () => {
+    const cc = new FakeSource('claude');
+    const ro = new FakeReadonlySource('qoderwork');
+    const { plane } = make([cc, ro]);
+    await plane.start();
+    expect(cc.watched.length).toBe(1);
+    expect(ro.watched.length).toBe(1);
+    await plane.stop();
   });
 });
 
