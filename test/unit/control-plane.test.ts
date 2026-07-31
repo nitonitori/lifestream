@@ -1,14 +1,25 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ControlPlane } from '../../src/domain/control-plane.js';
 import { FakeClock, FakeTmux, FakeSource, FakeReadonlySource, InMemoryManagedRegistry } from '../fakes/index.js';
 import { NotFoundError, NotControllableError, ConflictError } from '../../src/domain/errors.js';
 import { userLine } from '../fixtures/transcript-lines.js';
 
+interface Harness {
+  plane: ControlPlane;
+  tmux: FakeTmux;
+  registry: InMemoryManagedRegistry;
+  clock: FakeClock;
+  killed: number[];
+}
+
 // 不传 sources 时行为与单 source（home）时代完全一致；多 source 用例显式传一组替身。
-function make(sources?: (FakeSource | FakeReadonlySource)[]) {
+// 传了 sources 时**不**返回 home：那会是个没装进 plane 的诱饵，拿它设 live 会静默不生效。
+function make(): Harness & { home: FakeSource };
+function make(sources: (FakeSource | FakeReadonlySource)[]): Harness;
+function make(sources?: (FakeSource | FakeReadonlySource)[]): Harness & { home?: FakeSource } {
   const tmux = new FakeTmux();
-  const home = new FakeSource();
-  const all = sources ?? [home];
+  const home = sources ? undefined : new FakeSource();
+  const all: (FakeSource | FakeReadonlySource)[] = sources ?? [home!];
   const registry = new InMemoryManagedRegistry();
   const clock = new FakeClock(5000);
   const killed: number[] = [];
@@ -140,6 +151,10 @@ describe('adoptSession (B4)', () => {  it('resumes external (not live) into tmux
     expect(created.command).toEqual(['claude', '--resume', 'ext', '--permission-mode', 'bypassPermissions']);
     expect(created.cwd).toBe('/wlive');   // cwd 取自被杀前的 live 记录
   });
+  it('throws NotFoundError for unknown id', async () => {
+    const { plane } = make();
+    await expect(plane.adoptSession('nope')).rejects.toBeInstanceOf(NotFoundError);
+  });
 });
 
 describe('archiveSession (B6)', () => {
@@ -252,11 +267,85 @@ describe('多 source（Task 3）', () => {
   it('start 给每个 source 各装一个 watcher，按 sessionIdForPath 归属', async () => {
     const cc = new FakeSource('claude');
     const ro = new FakeReadonlySource('qoderwork');
+    cc.paths.set('s1', '/p/s1.jsonl');
+    cc.transcripts.set('s1', [userLine]);
     const { plane } = make([cc, ro]);
+    const events: any[] = [];
+    plane.on('event', e => { if (e.type === 'message') events.push(e); });
     await plane.start();
     expect(cc.watched.length).toBe(1);
     expect(ro.watched.length).toBe(1);
+    cc.watched[0]!('/p/s1.jsonl');            // 该路径归属 cc，应从 cc 读转录并 emit
+    await new Promise(r => setTimeout(r, 0)); // 等 ingestFrom 的微任务链跑完
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'message', sessionId: 's1', event: { kind: 'user', text: '你好' } });
     await plane.stop();
+  });
+
+  it('listSessions 保留「注册表里有、但没有对应 source」的受控会话', async () => {
+    const { plane, registry, tmux } = make([new FakeSource('claude')]);
+    await tmux.newSession('lifestream-orphan', '/w', ['qodercli']);
+    await registry.put({
+      sessionId: 'orphan', tmuxSession: 'lifestream-orphan', cwd: '/w',
+      kernel: 'qoderwork', origin: 'adopted', createdAt: 1,
+    });
+    const x = (await plane.listSessions()).find(s => s.sessionId === 'orphan');
+    expect(x).toBeDefined();               // 否则 tmux 里还在跑，Web 上看不见也删不掉
+    expect(x!.kernel).toBe('qoderwork');
+  });
+
+  it('pollSources 只在本组内判定消失，不误杀别组的会话', async () => {
+    const cc = new FakeSource('claude');
+    const ro = new FakeReadonlySource('qoderwork');
+    cc.live = [{ sessionId: 'c1', kernel: 'claude', cwd: '/tmp/c', status: 'idle', pid: 1 }];
+    ro.live = [{ sessionId: 'w1', kernel: 'qoderwork', cwd: '/tmp/w', status: 'idle' }];
+    const { plane } = make([cc, ro]);
+    await plane.pollOnce();                 // 两个 kernel 的 lastSeen 都填上
+    const events: any[] = [];
+    plane.on('event', e => events.push(e));
+    await plane.pollSources([ro]);          // 只读组的慢节拍那一跳
+    expect(events).not.toContainEqual({ type: 'session.removed', sessionId: 'c1' });
+    expect(events).toContainEqual({ type: 'session.updated', session: expect.objectContaining({ sessionId: 'w1' }) });
+  });
+
+  it('start 按分组各起一个 timer：可控组快节拍、只读组慢节拍', async () => {
+    const cc = new FakeSource('claude');
+    const ro = new FakeReadonlySource('qoderwork');
+    const plane = new ControlPlane({
+      tmux: new FakeTmux(), sources: [cc, ro], registry: new InMemoryManagedRegistry(),
+      clock: new FakeClock(5000), newSessionId: () => 'x',
+      pollIntervalMs: 100, readonlyPollIntervalMs: 500,
+    });
+    vi.useFakeTimers();
+    try {
+      await plane.start();
+      cc.reads = 0; ro.reads = 0;           // 忽略 start() 里的首轮全组 pollOnce
+      vi.advanceTimersByTime(1000);
+      expect(ro.reads).toBeGreaterThan(0);  // 只读组也在轮询，只是慢
+      expect(cc.reads).toBeGreaterThan(ro.reads * 2);
+    } finally {
+      await plane.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('只有只读组时 start() 不抛，且只读组照样被轮询', async () => {
+    const ro = new FakeReadonlySource('qoderwork');
+    const plane = new ControlPlane({
+      tmux: new FakeTmux(), sources: [ro], registry: new InMemoryManagedRegistry(),
+      clock: new FakeClock(5000), newSessionId: () => 'x',
+      pollIntervalMs: 100, readonlyPollIntervalMs: 100,
+    });
+    vi.useFakeTimers();
+    try {
+      await plane.start();
+      ro.reads = 0;
+      vi.advanceTimersByTime(350);
+      expect(ro.reads).toBeGreaterThan(0);
+    } finally {
+      await plane.stop();
+      vi.useRealTimers();
+    }
   });
 });
 

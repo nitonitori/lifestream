@@ -76,14 +76,21 @@ export class ControlPlane extends EventEmitter {
     return activity;
   }
 
-  private async summarize(sources: AgentSource[]): Promise<SessionSummary[]> {
+  // dropForeignManaged=true 只在分组轮询时用：group 的 live 只来自本组，
+  // 不过滤就会把别组的受控会话报成 live:false。
+  // 全量列表必须传 false：否则「注册表里有、但没有对应 source」的受控会话会消失
+  // —— tmux 里还在跑，Web 上却看不见也删不掉。
+  private async summarize(sources: AgentSource[], dropForeignManaged: boolean): Promise<SessionSummary[]> {
     const kernels = new Set(sources.map(s => s.kernel));
     const live = (await Promise.all(sources.map(s => s.readLiveSessions()))).flat();
-    const managed = (await this.d.registry.list()).filter(m => kernels.has(m.kernel));
+    const allManaged = await this.d.registry.list();
+    const managed = dropForeignManaged ? allManaged.filter(m => kernels.has(m.kernel)) : allManaged;
     const tmuxNames = new Set((await this.d.tmux.listSessions()).map(t => t.name));
     const ids = new Map<string, Kernel>();
     for (const m of managed) ids.set(m.sessionId, m.kernel);
     for (const l of live) ids.set(l.sessionId, l.kernel);
+    // 归属写缓存：给 sourceOf 用。getSession 先走 listSessions() 再走 sourceOf，
+    // 靠这里写下的 id→kernel 直接命中，省掉一轮转录探测/live 枚举。
     for (const [id, k] of ids) this.kernelOf.set(id, k);
     const activity = await this.activityMap(ids);
     return buildSummaries({
@@ -92,7 +99,7 @@ export class ControlPlane extends EventEmitter {
     });
   }
 
-  async listSessions(): Promise<SessionSummary[]> { return this.summarize(this.d.sources); }
+  async listSessions(): Promise<SessionSummary[]> { return this.summarize(this.d.sources, false); }
 
   async getSession(id: string): Promise<SessionDetail> {
     const s = (await this.listSessions()).find(x => x.sessionId === id);
@@ -105,7 +112,8 @@ export class ControlPlane extends EventEmitter {
 
   async getMessages(id: string, opts: { sinceUuid?: string; limit?: number } = {}): Promise<TranscriptEvent[]> {
     let src: AgentSource;
-    try { src = await this.sourceOf(id); } catch { return []; }
+    try { src = await this.sourceOf(id); }
+    catch (e) { if (e instanceof NotFoundError) return []; throw e; }
     const path = await src.locateTranscript(id);
     if (!path) return [];
     let events = parseTranscript(await src.readTranscript(path));
@@ -192,7 +200,7 @@ export class ControlPlane extends EventEmitter {
     if (liveMatches.length) {
       cwdHint = liveMatches.find(l => l.cwd)?.cwd;
       for (const l of liveMatches) if (l.pid) this.killPid(l.pid);
-      await this.waitForSessionGone(id);
+      await this.waitForSessionGone(src, id);
     }
     const cwd = cwdHint ?? await this.resolveCwd(src, id);
     const name = tmuxNameFor(id);
@@ -212,9 +220,10 @@ export class ControlPlane extends EventEmitter {
   }
 
   // 轮询直到该 session id 从 live 注册表消失（原进程已释放），最多约 3s 后仍继续。
-  private async waitForSessionGone(id: string, tries = 15, delayMs = 200): Promise<void> {
+  private async waitForSessionGone(src: AgentSource, id: string, tries = 15, delayMs = 200): Promise<void> {
     for (let i = 0; i < tries; i++) {
-      if (!await this.isLive(id)) return;
+      const live = await src.readLiveSessions();
+      if (!live.some(l => l.sessionId === id)) return;
       await new Promise(r => setTimeout(r, delayMs));
     }
   }
@@ -227,6 +236,7 @@ export class ControlPlane extends EventEmitter {
       if (await this.d.tmux.hasSession(entry.tmuxSession)) await this.d.tmux.killSession(entry.tmuxSession);
       await this.d.registry.remove(id);
       this.lastSeen.get(entry.kernel)?.delete(id);
+      this.kernelOf.delete(id);
       this.emitEvent({ type: 'session.removed', sessionId: id });
       return;
     }
@@ -237,8 +247,8 @@ export class ControlPlane extends EventEmitter {
   }
 
   // 消失判定只在本组内做，否则只读组的慢节拍轮询会把可控组的会话误判为消失。
-  private async pollSources(group: AgentSource[]): Promise<void> {
-    const list = await this.summarize(group);
+  async pollSources(group: AgentSource[]): Promise<void> {
+    const list = await this.summarize(group, true);
     for (const s of list) this.emitEvent({ type: 'session.updated', session: s });
     for (const src of group) {
       const seen = this.lastSeen.get(src.kernel) ?? new Set<string>();
@@ -252,7 +262,8 @@ export class ControlPlane extends EventEmitter {
 
   async ingestTranscript(id: string): Promise<void> {
     let src: AgentSource;
-    try { src = await this.sourceOf(id); } catch { return; }
+    try { src = await this.sourceOf(id); }
+    catch (e) { if (e instanceof NotFoundError) return; throw e; }
     await this.ingestFrom(src, id);
   }
 

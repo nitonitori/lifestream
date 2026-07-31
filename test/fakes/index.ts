@@ -42,7 +42,8 @@ export class FakeSource implements ControllableSource {
   live: LiveSession[] = [];
   transcripts = new Map<string, string[]>(); // sessionId -> lines
   paths = new Map<string, string>();         // sessionId -> path
-  async readLiveSessions() { return this.live; }
+  reads = 0;                                 // readLiveSessions 次数：给轮询节拍的测试当计数器
+  async readLiveSessions() { this.reads++; return this.live; }
   async locateTranscript(id: string) { return this.paths.get(id) ?? null; }
   async readTranscript(path: string) {
     for (const [id, p] of this.paths) if (p === path) return this.transcripts.get(id) ?? [];
@@ -74,7 +75,8 @@ export class FakeReadonlySource implements AgentSource {
   constructor(readonly kernel: Kernel) {}
 
   live: LiveSession[] = [];
-  async readLiveSessions() { return this.live; }
+  reads = 0;                                 // readLiveSessions 次数：给轮询节拍的测试当计数器
+  async readLiveSessions() { this.reads++; return this.live; }
   async locateTranscript() { return null; }
   async readTranscript() { return []; }
   async readTranscriptFrom() { return { lines: [], offset: 0 }; }
