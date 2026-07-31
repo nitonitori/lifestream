@@ -3,6 +3,13 @@
   "tmux": { "bin": "tmux", "socket": "lifestream" },
   "claude": { "bin": "claude", "defaultModel": null, "agentPermissionMode": "bypassPermissions" },
   "paths": { "claudeHome": "~/.claude", "stateDir": "~/.lifestream" },
+  "qoder": {
+    "cliBin": "qodercli",
+    "cliPermissionMode": "bypass_permissions",
+    "qoderHome": "~/.qoder",
+    "qoderWorkHome": "~/.qoderwork",
+    "heartbeatTtlMs": 1800000
+  },
   "im": {
     "enabled": false,
     "provider": "dingtalk",

@@ -1,4 +1,5 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
@@ -76,10 +77,18 @@ describe('ClaudeSource', () => {
 });
 
 describe('QoderCliSource', () => {
+  // 下面的用例拿本进程 pid 当「活 pid」，要过进程名核对就得把 bin 传成本进程在 ps 里的名字。
+  // 不能硬编码 'node'：ps -o comm= 给的是进程标题，而 vitest 的 worker 会把它改写成
+  // `node (vitest 1)`，硬编码会让本该 live 的用例被进程名闸挡掉。故运行时问一次 ps。
+  const selfBin = execFileSync('ps', ['-p', String(process.pid), '-o', 'comm='], { encoding: 'utf8' }).trim();
+
+  // 返回写入的 run 文件路径，供「开机时间闸」的测试 backdate mtime。
   const seed = (h: string, sessionId: string, run: string, lines: string[]) => {
     const dir = join(h, 'logs', 'sessions', '-Users-l-dev-foo', sessionId, 'segments');
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, `${run}.jsonl`), lines.join('\n') + '\n');
+    const p = join(dir, `${run}.jsonl`);
+    writeFileSync(p, lines.join('\n') + '\n');
+    return p;
   };
 
   test('kernel 是 qodercli 且用 qodercli 方言', () => {
@@ -89,7 +98,8 @@ describe('QoderCliSource', () => {
       .toEqual(['qodercli', '--session-id', 'sid', '--permission-mode', 'bypass_permissions']);
   });
 
-  test('run 名 pid 活着才算 live，cwd 与状态取自 segments', async () => {
+  // 传 selfBin 的几条会真的走通 ps 核对，因此顺带正向覆盖了进程名闸。
+  test('run 名 pid 活着才算 live，cwd 取自 segments、状态一律 unknown', async () => {
     const h = home();
     seed(h, 'alive', `2026-07-30T16-31-03-aaaa-p${process.pid}`, [
       JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/Users/l/dev/foo' } }),
@@ -98,9 +108,9 @@ describe('QoderCliSource', () => {
     seed(h, 'dead', '2026-07-30T16-31-03-bbbb-p99999999', [
       JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/Users/l/dev/bar' } }),
     ]);
-    const live = await new QoderCliSource(h, 'qodercli', 'bypass_permissions').readLiveSessions();
+    const live = await new QoderCliSource(h, selfBin, 'bypass_permissions').readLiveSessions();
     expect(live.map(x => x.sessionId)).toEqual(['alive']);
-    expect(live[0]).toMatchObject({ kernel: 'qodercli', cwd: '/Users/l/dev/foo', status: 'busy' });
+    expect(live[0]).toMatchObject({ kernel: 'qodercli', cwd: '/Users/l/dev/foo', status: 'unknown' });
   });
 
   test('同一会话有多个 run 时取名字最大的那个（run 名以 ISO 时间戳开头）', async () => {
@@ -111,9 +121,48 @@ describe('QoderCliSource', () => {
     seed(h, 's1', `2026-07-30T16-47-38-bbbb-p${process.pid}`, [
       JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/new' } }),
     ]);
-    const live = await new QoderCliSource(h, 'qodercli').readLiveSessions();
+    const live = await new QoderCliSource(h, selfBin).readLiveSessions();
     expect(live).toHaveLength(1);
     expect(live[0]!.cwd).toBe('/new');
+  });
+
+  test('pid 活着但进程名不是本 source 的 bin，不算 live（pid 复用防护）', async () => {
+    const h = home();
+    seed(h, 'reused', `2026-07-30T16-31-03-cccc-p${process.pid}`, [
+      JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/x' } }),
+    ]);
+    const live = await new QoderCliSource(h, 'qodercli').readLiveSessions();
+    expect(live).toEqual([]);
+  });
+
+  test('run 日志在本次开机之前写的，不算 live（pid 复用防护）', async () => {
+    const h = home();
+    const p = seed(h, 'stale', `2026-07-30T16-31-03-dddd-p${process.pid}`, [
+      JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/x' } }),
+    ]);
+    const old = new Date('2000-01-01T00:00:00Z');
+    utimesSync(p, old, old);
+    const live = await new QoderCliSource(h, selfBin).readLiveSessions();
+    expect(live).toEqual([]);
+  });
+
+  test('run 名没有 -p 后缀则跳过', async () => {
+    const h = home();
+    seed(h, 'nopid', '2026-07-30T16-31-03-eeee', [
+      JSON.stringify({ type: 'session.config.loaded', data: { project_root: '/x' } }),
+    ]);
+    const live = await new QoderCliSource(h, selfBin).readLiveSessions();
+    expect(live).toEqual([]);
+  });
+
+  test('segments 里没有 project_root 时 cwd 落成空串', async () => {
+    const h = home();
+    seed(h, 'nocwd', `2026-07-30T16-31-03-ffff-p${process.pid}`, [
+      JSON.stringify({ type: 'turn.started', data: {} }),
+    ]);
+    const live = await new QoderCliSource(h, selfBin).readLiveSessions();
+    expect(live).toHaveLength(1);
+    expect(live[0]!.cwd).toBe('');
   });
 
   test('平铺转录归自己，transcript/ 下的不归自己', () => {

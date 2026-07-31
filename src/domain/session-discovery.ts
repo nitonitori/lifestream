@@ -36,7 +36,7 @@ export function buildSummaries(args: {
     // id 集合是 live ∪ managed，两者必有其一
     const kernel = l?.kernel ?? m!.kernel;
     out.push({
-      sessionId: id, kernel, name: l?.name, cwd: l?.cwd ?? m?.cwd ?? '',
+      sessionId: id, kernel, name: l?.name, cwd: l?.cwd || m?.cwd || '',
       status: l?.status ?? 'unknown', origin, live: !!l, controllable,
       adoptable: adoptable.has(kernel),
       tmuxSession: m?.tmuxSession, pid: l?.pid, lastActivity: activity.get(id), createdAt: m?.createdAt,

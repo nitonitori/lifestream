@@ -54,6 +54,15 @@ describe('buildSummaries', () => {
     })[0];
     expect(s).toMatchObject({ sessionId: 's3', kernel: 'claude', live: false, controllable: false });
   });
+  it('live 的空串 cwd 不该盖掉注册表里的正确值', () => {
+    const s = buildSummaries({
+      live: [{ pid: 5, kernel: 'qodercli', sessionId: 's5', cwd: '', status: 'unknown' }],
+      managed: [{ sessionId: 's5', tmuxSession: 't5', cwd: '/real', kernel: 'qodercli', origin: 'managed' }],
+      tmuxNames: new Set(['t5']), activity: new Map(),
+      adoptable: new Set(['qodercli']),
+    })[0];
+    expect(s!.cwd).toBe('/real');
+  });
   it('new managed session (createdAt, no activity) sorts above older active ones', () => {
     const out = buildSummaries({
       live: [

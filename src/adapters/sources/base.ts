@@ -65,7 +65,7 @@ export abstract class ProjectsSource implements AgentSource {
 }
 
 export abstract class CliSource extends ProjectsSource implements ControllableSource {
-  constructor(home: string, private readonly bin: string, private readonly permissionMode?: string) {
+  constructor(home: string, protected readonly bin: string, private readonly permissionMode?: string) {
     super(home);
   }
 

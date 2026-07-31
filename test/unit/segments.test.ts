@@ -23,37 +23,20 @@ describe('parseSegments', () => {
     expect(r.cwd).toBe('/Users/l/dev/foo');
   });
 
-  test('末条事件以 .started 结尾判 busy', () => {
+  test('只取第一条 session.config.loaded 的 project_root', () => {
     const r = parseSegments([
-      L({ type: 'session.phase.finished', data: {} }),
-      L({ type: 'model.request.started', data: {} }),
+      L({ type: 'session.config.loaded', data: { project_root: '/first' } }),
+      L({ type: 'session.config.loaded', data: { project_root: '/second' } }),
     ]);
-    expect(r.status).toBe('busy');
-  });
-
-  test('末条事件以 .finished 结尾判 idle', () => {
-    const r = parseSegments([
-      L({ type: 'model.request.started', data: {} }),
-      L({ type: 'model.response.completed', data: {} }),
-      L({ type: 'turn.finished', data: { reason: 'end_turn' } }),
-    ]);
-    expect(r.status).toBe('idle');
-  });
-
-  test('非 .started/.finished 的事件不改变状态', () => {
-    const r = parseSegments([
-      L({ type: 'model.request.started', data: {} }),
-      L({ type: 'input.prompt.received', data: {} }),
-    ]);
-    expect(r.status).toBe('busy');
+    expect(r.cwd).toBe('/first');
   });
 
   test('坏行跳过而不抛', () => {
-    const r = parseSegments(['not json', L({ type: 'turn.finished', data: {} })]);
-    expect(r.status).toBe('idle');
+    const r = parseSegments(['not json', L({ type: 'session.config.loaded', data: { project_root: '/x' } })]);
+    expect(r.cwd).toBe('/x');
   });
 
-  test('没有任何事件时默认 idle 且无 cwd', () => {
-    expect(parseSegments([])).toEqual({ cwd: undefined, status: 'idle' });
+  test('没有任何事件时无 cwd', () => {
+    expect(parseSegments([])).toEqual({ cwd: undefined });
   });
 });
