@@ -47,7 +47,7 @@ export function createSessionCommands(
       const label = x?.name || id.slice(0, 8);
       const ok = await confirmDialog({
         title: '结束会话',
-        body: `结束会话「${label}」？这会关闭其 tmux 窗口并结束对应的 Claude 进程。`,
+        body: `结束会话「${label}」？这会关闭其 tmux 窗口并结束对应的内核进程。`,
         okText: '结束会话', danger: true,
       });
       if (!ok) return;

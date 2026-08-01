@@ -1,9 +1,11 @@
 import { $ } from '../ui/dom';
 
 // composer 的 DOM 留在 index.html（布局的一部分），本模块只接管其行为。
-export function mountComposer(onSend: (text: string) => void): { setPlaceholder(text: string): void } {
+export function mountComposer(onSend: (text: string) => void):
+  { setPlaceholder(text: string): void; setVisible(on: boolean): void } {
   const input = $<HTMLTextAreaElement>('composerInput');
   const button = $<HTMLButtonElement>('sendBtn');
+  const box = input.closest('.composer') as HTMLElement;
 
   const autoGrow = () => {
     input.style.height = 'auto';
@@ -23,5 +25,8 @@ export function mountComposer(onSend: (text: string) => void): { setPlaceholder(
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
   });
 
-  return { setPlaceholder: text => { input.placeholder = text; } };
+  return {
+    setPlaceholder: text => { input.placeholder = text; },
+    setVisible: on => { box.hidden = !on; },
+  };
 }

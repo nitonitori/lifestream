@@ -77,12 +77,14 @@ export function mountConsole(
       cvName.textContent = '信使 Agent';
       cvSub.textContent = '与钉钉共享同一会话上下文';
       composer.setPlaceholder('对信使 Agent 说…（变更操作会先请你确认）');
+      composer.setVisible(true);
     } else {
       const x = sessionOf(store.getState(), ref.id);
       cvName.textContent = x?.name || ref.id.slice(0, 8);
       cvSub.textContent = x ? `${statusLabel(x)} · ${x.cwd}` : ref.id;
-      composer.setPlaceholder(x?.controllable ? '发送消息到该会话…'
-        : x?.adoptable ? '该会话未托管，先接管才能发送' : '该会话只读，无法发送');
+      composer.setPlaceholder(x?.controllable ? '发送消息到该会话…' : '该会话未托管，先接管才能发送');
+      // 既不可控也不可接管 = 只读会话（桌面产品），输入框留着只会让人点出一个错误 toast。
+      composer.setVisible(!x || x.controllable || x.adoptable);
       if (x && !x.controllable && x.live && x.adoptable) {
         cvActions.appendChild(el('button', {
           class: 'btn btn--ghost', text: '接管', onclick: () => void cmds.adopt(ref.id),
