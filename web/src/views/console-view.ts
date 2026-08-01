@@ -81,7 +81,8 @@ export function mountConsole(
       const x = sessionOf(store.getState(), ref.id);
       cvName.textContent = x?.name || ref.id.slice(0, 8);
       cvSub.textContent = x ? `${statusLabel(x)} · ${x.cwd}` : ref.id;
-      composer.setPlaceholder(x?.controllable ? '发送消息到该会话…' : '该会话未托管，先接管才能发送');
+      composer.setPlaceholder(x?.controllable ? '发送消息到该会话…'
+        : x?.adoptable ? '该会话未托管，先接管才能发送' : '该会话只读，无法发送');
       if (x && !x.controllable && x.live && x.adoptable) {
         cvActions.appendChild(el('button', {
           class: 'btn btn--ghost', text: '接管', onclick: () => void cmds.adopt(ref.id),
