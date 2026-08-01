@@ -57,8 +57,14 @@ settings.json 的是这个 dist 的绝对路径**。所以：
 每个活跃会话对应一个 `<sessionId>.json`。`lifestream hooks status` 会报出三件事：五个事件装了几个、
 注入的脚本还在不在、每个心跳目录里的文件数与最近一次心跳时间。
 
-> 会话出现在 Web 会话列表里（内核标签 `QODER` / `QW`）由**后续任务**接上 —— 本次只交付
-> 「往 settings.json 注入 hook」与「心跳落盘到 `~/.lifestream/heartbeats/`」这两件事。
+装好之后，两个桌面产品的会话会带着内核标签 `QODER`（Qoder IDE）/ `QW`（QoderWork）出现在 Web
+会话列表里，只读 —— 没有「接管」按钮。
+
+> `~/.qoder/settings.json` 是 Qoder IDE 与命令行 `qodercli` **共用**的，所以 qodercli 会话也会往
+> `heartbeats/qoder-ide/` 写心跳。这些会话不会被误当成 IDE 会话：只有在 `~/.qoder/projects/*/transcript/`
+> 下有转录的心跳才算 IDE 会话。QoderWork 自带的那个 qodercli
+> （`/Applications/QoderWork.app/Contents/Resources/bin/qodercli`）读的同样是 `~/.qoder/settings.json`，
+> 不是 `~/.qoderwork/settings.json` —— 后者只有 QoderWork 桌面端自己会读。
 
 ### 卸载
 
