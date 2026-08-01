@@ -14,7 +14,7 @@
 - 内核枚举，字面量精确：`export type Kernel = 'claude' | 'qodercli' | 'qoderwork' | 'qoder-ide';`
 - 可控内核只有 2 个：`claude`、`qodercli`。`qoderwork`、`qoder-ide` **只读**，对它们 `createSession` / `adoptSession` 必须抛 `NotControllableError`。
 - 权限模式取值拼法不同：Claude Code `bypassPermissions`；qodercli `bypass_permissions`。flag 名两者相同（`--session-id` / `--resume` / `--permission-mode` / `--model` / `--name`）。
-- transcript 路径形状：`claude` = `<claudeHome>/projects/<enc>/<id>.jsonl`；`qodercli` = `~/.qoder/projects/<enc>/<id>.jsonl`；`qoderwork` = `~/.qoderwork/projects/<enc>/<id>.jsonl`；`qoder-ide` = `~/.qoder/projects/<enc>/transcript/<id>.jsonl`，Quest 为 `~/.qoder/projects/<enc>/transcript/task-<20hex>.session.execution.jsonl`（唯一 sessionId ≠ 文件名主体的情形）。
+- transcript 路径形状：`claude` = `<claudeHome>/projects/<enc>/<id>.jsonl`；`qodercli` = `~/.qoder/projects/<enc>/<id>.jsonl`；`qoderwork` = `~/.qoderwork/projects/<enc>/<id>.jsonl`；`qoder-ide` = `~/.qoder/projects/<enc>/transcript/<id>.jsonl`，Quest 为 `~/.qoder/projects/<enc>/transcript/task-<20hex>.session.execution.jsonl`（实施期修正：Quest 的 sessionId **自带** `.session.execution`，四个内核的 sessionId 都等于文件名去掉 `.jsonl`）。
 - `~/.qoder/projects` 由 `qodercli` 与 `qoder-ide` 共用，靠**是否位于 `transcript/` 子目录**区分，不靠正则猜 uuid。
 - `src/domain/transcript-parser.ts` **一行不改**。
 - 心跳 hook 事件名，五个，精确：`SessionStart`、`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`Stop`。
@@ -2503,20 +2503,20 @@ describe('QoderIdeSource', () => {
     expect(live[0]!.kernel).toBe('qoder-ide');
   });
 
-  test('Quest 会话按 task-* 后缀定位转录', async () => {
+  test('Quest 会话的 sessionId 自带 .session.execution，转录名就是 <id>.jsonl', async () => {
     const h = home(); const hb = join(home(), 'hb');
-    const id = 'task-0123456789abcdef0123';
-    ideTranscript(h, `${id}.session.execution.jsonl`);
+    const id = 'task-0123456789abcdef0123.session.execution';
+    ideTranscript(h, `${id}.jsonl`);
     hbFile(hb, id, 'PreToolUse');
     expect((await mk(h, hb).readLiveSessions()).map(x => x.sessionId)).toEqual([id]);
-    expect(await mk(h, hb).locateTranscript(id)).toContain(`${id}.session.execution.jsonl`);
+    expect(await mk(h, hb).locateTranscript(id)).toContain(`${id}.jsonl`);
   });
 
-  test('sessionIdForPath 只认 transcript/ 一层，Quest 名剥掉整个后缀', () => {
+  test('sessionIdForPath 只认 transcript/ 一层，只剥 .jsonl', () => {
     const s = mk(home(), home());
     expect(s.sessionIdForPath('-Users-l/transcript/abc.jsonl')).toBe('abc');
     expect(s.sessionIdForPath('-Users-l/transcript/task-0123456789abcdef0123.session.execution.jsonl'))
-      .toBe('task-0123456789abcdef0123');
+      .toBe('task-0123456789abcdef0123.session.execution');
     expect(s.sessionIdForPath('-Users-l/abc.jsonl')).toBeNull();
     expect(s.sessionIdForPath('-Users-l/transcript/abc.json')).toBeNull();
   });
@@ -2578,14 +2578,13 @@ export class QoderWorkSource extends HeartbeatSource {
   }
 }
 
-const QUEST_SUFFIX = '.session.execution.jsonl';
-
 export class QoderIdeSource extends HeartbeatSource {
   readonly kernel = 'qoder-ide' as const;
 
+  // 实施期修正（Task 8 实测）：Quest 的 sessionId 自带 `.session.execution`，转录名一律 `<id>.jsonl`，
+  // 不存在按 `task-` 前缀换后缀这回事 —— 原写法拼出双份后缀，Qoder IDE 会话会被全部滤掉。
   protected override candidatePaths(sessionId: string): string[] {
-    const file = sessionId.startsWith('task-') ? `${sessionId}${QUEST_SUFFIX}` : `${sessionId}.jsonl`;
-    return safeReaddir(this.projectsDir).map(d => join(this.projectsDir, d, 'transcript', file));
+    return safeReaddir(this.projectsDir).map(d => join(this.projectsDir, d, 'transcript', `${sessionId}.jsonl`));
   }
 
   // ~/.qoder/settings.json 是 qodercli 与 Qoder IDE 共用的，心跳目录区分不了二者；
@@ -2597,10 +2596,8 @@ export class QoderIdeSource extends HeartbeatSource {
   sessionIdForPath(changedPath: string): string | null {
     const parts = changedPath.split('/').filter(Boolean);
     const file = parts.at(-1);
-    if (!file || parts.at(-2) !== 'transcript') return null;
-    if (file.endsWith(QUEST_SUFFIX)) return file.slice(0, -QUEST_SUFFIX.length);
-    if (file.endsWith('.jsonl')) return file.slice(0, -'.jsonl'.length);
-    return null;
+    if (!file || parts.at(-2) !== 'transcript' || !file.endsWith('.jsonl')) return null;
+    return file.slice(0, -'.jsonl'.length);
   }
 }
 ```

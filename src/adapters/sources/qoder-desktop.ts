@@ -43,14 +43,12 @@ export class QoderWorkSource extends HeartbeatSource {
   }
 }
 
-const QUEST_SUFFIX = '.session.execution.jsonl';
-
 export class QoderIdeSource extends HeartbeatSource {
   readonly kernel = 'qoder-ide' as const;
 
+  // Quest 会话的 sessionId 本身就带 `.session.execution`（实测心跳载荷），转录名一律是 `<id>.jsonl`。
   protected override candidatePaths(sessionId: string): string[] {
-    const file = sessionId.startsWith('task-') ? `${sessionId}${QUEST_SUFFIX}` : `${sessionId}.jsonl`;
-    return safeReaddir(this.projectsDir).map(d => join(this.projectsDir, d, 'transcript', file));
+    return safeReaddir(this.projectsDir).map(d => join(this.projectsDir, d, 'transcript', `${sessionId}.jsonl`));
   }
 
   // ~/.qoder/settings.json 是 qodercli 与 Qoder IDE 共用的，心跳目录区分不了二者；
@@ -62,9 +60,7 @@ export class QoderIdeSource extends HeartbeatSource {
   sessionIdForPath(changedPath: string): string | null {
     const parts = changedPath.split('/').filter(Boolean);
     const file = parts.at(-1);
-    if (!file || parts.at(-2) !== 'transcript') return null;
-    if (file.endsWith(QUEST_SUFFIX)) return file.slice(0, -QUEST_SUFFIX.length);
-    if (file.endsWith('.jsonl')) return file.slice(0, -'.jsonl'.length);
-    return null;
+    if (!file || parts.at(-2) !== 'transcript' || !file.endsWith('.jsonl')) return null;
+    return file.slice(0, -'.jsonl'.length);
   }
 }

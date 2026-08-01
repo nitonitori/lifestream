@@ -126,13 +126,16 @@ export function isControllable(s: AgentSource): s is ControllableSource {
 
 - `ClaudeSource` / `QoderCliSource` / `QoderWorkSource`：`<enc-cwd>/<uuid>.jsonl` 平铺，一层深；
   出现 `transcript/` 一层则返回 `null`。
-- `QoderIdeSource`：`<enc-cwd>/transcript/<uuid>.jsonl` 返回 uuid；
-  `<enc-cwd>/transcript/task-<20hex>.session.execution.jsonl` 返回 `task-<20hex>`（Quest 的
-  `sessionId` 就等于文件名主体，不是 uuid）。
+- `QoderIdeSource`：`<enc-cwd>/transcript/<file>.jsonl` 返回 `<file>`，只剥 `.jsonl`；
+  平铺一层（没有 `transcript/`）返回 `null`。
 
-对应地，`QoderIdeSource.locateTranscript(id)` 要按 id 形状选后缀：`task-` 前缀的拼
-`<id>.session.execution.jsonl`，否则拼 `<id>.jsonl`，都在 `projects/*/transcript/` 下查找。
-这是四个 source 里唯一 sessionId 与文件名不是简单相等关系的一个。
+> 实施期修正：原本写的是「Quest 的 `sessionId` 是 `task-<20hex>`，要剥掉整个
+> `.session.execution.jsonl` 后缀，`locateTranscript` 再按 id 形状拼回去」。真实 hook 载荷否证了
+> 这条假设 —— Qoder IDE 给出的 `session_id` 是 `task-<20hex>.session.execution`（**自带**
+> `.session.execution`），转录名就是 `<sessionId>.jsonl`。按原设计拼出的是
+> `task-<20hex>.session.execution.session.execution.jsonl`，永远找不到文件，于是 Qoder IDE 的
+> 会话被 `isOwnSession` 全部滤掉、一条都不出现。四个 source 的 sessionId 与文件名主体都是简单
+> 相等关系，`QoderIdeSource` 只在「多一层 `transcript/`」上与别人不同。
 
 ### 3.2 为什么加 `launchCommand` / `resumeCommand`
 

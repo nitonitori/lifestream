@@ -283,20 +283,20 @@ describe('QoderIdeSource', () => {
     expect(live[0]!.kernel).toBe('qoder-ide');
   });
 
-  test('Quest 会话按 task-* 后缀定位转录', async () => {
+  test('Quest 会话的 sessionId 自带 .session.execution，转录名就是 <id>.jsonl', async () => {
     const h = home(); const hb = join(home(), 'hb');
-    const id = 'task-0123456789abcdef0123';
-    ideTranscript(h, `${id}.session.execution.jsonl`);
+    const id = 'task-0123456789abcdef0123.session.execution';
+    ideTranscript(h, `${id}.jsonl`);
     hbFile(hb, id, 'PreToolUse');
     expect((await mk(h, hb).readLiveSessions()).map(x => x.sessionId)).toEqual([id]);
-    expect(await mk(h, hb).locateTranscript(id)).toContain(`${id}.session.execution.jsonl`);
+    expect(await mk(h, hb).locateTranscript(id)).toContain(`${id}.jsonl`);
   });
 
-  test('sessionIdForPath 只认 transcript/ 一层，Quest 名剥掉整个后缀', () => {
+  test('sessionIdForPath 只认 transcript/ 一层，只剥 .jsonl', () => {
     const s = mk(home(), home());
     expect(s.sessionIdForPath('-Users-l/transcript/abc.jsonl')).toBe('abc');
     expect(s.sessionIdForPath('-Users-l/transcript/task-0123456789abcdef0123.session.execution.jsonl'))
-      .toBe('task-0123456789abcdef0123');
+      .toBe('task-0123456789abcdef0123.session.execution');
     expect(s.sessionIdForPath('-Users-l/abc.jsonl')).toBeNull();
     expect(s.sessionIdForPath('-Users-l/transcript/abc.json')).toBeNull();
   });
