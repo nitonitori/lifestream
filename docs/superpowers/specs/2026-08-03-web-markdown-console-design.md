@@ -84,7 +84,8 @@ web/src/components/markdown.ts     新增
 web/src/components/message-node.ts 改
   ├── 新增 doc(label, ts, src): HTMLElement      文档流容器，正文用 mdBlock
   ├── messageNodes() 的 assistant 分支改用 doc
-  └── bubble() / trace() 原样不动
+  ├── bubble() 的 role 收窄为 'user' | 'system'（'agent' 改道后已无调用方）
+  └── trace() 原样不动
 web/public/style.css               改：.md 作用域排版 + .msg--agent 改文档流
 package.json                       改：dependencies 加 markdown-it@^15
 ```
