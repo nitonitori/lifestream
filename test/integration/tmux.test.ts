@@ -7,6 +7,10 @@ const NAME = 'ls-it-' + process.pid;
 const OUT = `/tmp/ls-it-out-${process.pid}`;
 afterAll(async () => { try { await tmux.killSession(NAME); } catch { /* ignore */ } try { if (existsSync(OUT)) rmSync(OUT); } catch { /* ignore */ } });
 
+// 真 tmux 集成：每条要串行 spawn 五六次 tmux（首次还要拉起 server），并等 500ms 让 cat 落盘。
+// 整套并行跑时会顶到 vitest 默认的 5s 上限，故显式给足预算；断言本身与耗时无关。
+const REAL_TMUX_TIMEOUT_MS = 20_000;
+
 describe('Tmux (integration)', () => {
   it('new/has/send/kill roundtrip with multiline (B1)', async () => {
     await tmux.newSession(NAME, process.cwd(), ['sh', '-c', `cat >> ${OUT}`]);
@@ -18,7 +22,7 @@ describe('Tmux (integration)', () => {
     expect(content).toContain('line-two');
     await tmux.killSession(NAME);
     expect(await tmux.hasSession(NAME)).toBe(false);
-  });
+  }, REAL_TMUX_TIMEOUT_MS);
 
   it('sendLiteral 不追加 Enter（真 tmux 字节级）', async () => {
     // 独立前缀: tmux 的 -t 按前缀解析, 若叫 NAME + '-lit' 则上一条测试的 hasSession(NAME) 会命中它。
@@ -39,5 +43,5 @@ describe('Tmux (integration)', () => {
       try { await tmux.killSession(name); } catch { /* ignore */ }
       try { if (existsSync(out)) rmSync(out); } catch { /* ignore */ }
     }
-  });
+  }, REAL_TMUX_TIMEOUT_MS);
 });
