@@ -18,7 +18,7 @@ Lifestream 是一个本机 Hub（由守护进程保活）：它发现本机所�
 
 ## 架构
 
-采用 ports & adapters（六边形）架构：核心域逻辑纯净可测，所有副作用（tmux / 文件系统 / 钉钉 CLI / claude 进程）通过适配器接口解耦。
+采用 ports & adapters（六边形）架构：核心域逻辑纯净可测，所有副作用（tmux / 文件系统 / 钉钉 CLI / 各内核进程）通过适配器接口解耦。
 
 ```
    lifestream daemon (supervisor, 保活)
@@ -33,7 +33,7 @@ Lifestream 是一个本机 Hub（由守护进程保活）：它发现本机所�
    │      ControlPlane（核心域）                 │
    │   discover · monitor · control · create · adopt │
    └──┬────────┬──────────┬──────────┬──────────┘
-   TmuxAdapter ClaudeHome  Clock  ImAdapter / AgentRunner
+   TmuxAdapter AgentSource[] Clock ImAdapter / AgentRunner
 ```
 
 ## 环境要求

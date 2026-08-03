@@ -16,8 +16,10 @@ Lifestream：本机 Claude Code 会话监控与控制中枢；Web / 钉钉 IM / 
 
 - **六边形 / ports & adapters**：
   - `src/domain/` —— 纯核心逻辑，**无副作用**，全部可单测。
-  - `src/ports/` —— 接口定义（TmuxAdapter / ClaudeHomeAdapter / ImAdapter / AgentRunner / …）。
-  - `src/adapters/` —— 副作用实现（tmux / 文件系统 / 钉钉 CLI / claude 进程）。
+  - `src/ports/` —— 接口定义（TmuxAdapter / AgentSource / ControllableSource / ImAdapter / AgentRunner / …）。
+  - `src/adapters/` —— 副作用实现（tmux / 文件系统 / 钉钉 CLI / 各内核进程）。
+  - `src/adapters/sources/` —— 每个内核一个 source（claude / qodercli / qoderwork / qoder-ide），
+    可控的实现 `ControllableSource`，只读的只实现 `AgentSource`。
   - `src/server/`、`src/mcp/`、`src/im/` —— 入口与编排。
 - 新增副作用一律放到 adapter 后面，通过 port 注入；domain 不直接碰 IO。
 - ESM 相对导入必须带 `.js` 后缀（如 `import { x } from './foo.js'`），即使源文件是 `.ts`。

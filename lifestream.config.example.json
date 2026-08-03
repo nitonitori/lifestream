@@ -1,7 +1,12 @@
 {
   "web": { "host": "127.0.0.1", "port": 8787, "token": "" },
   "tmux": { "bin": "tmux", "socket": "lifestream" },
-  "claude": { "bin": "claude", "defaultModel": null, "agentPermissionMode": "bypassPermissions" },
+  "claude": {
+    "bin": "claude",
+    "defaultModel": null,
+    "agentPermissionMode": "bypassPermissions",
+    "sessionPermissionMode": "bypassPermissions"
+  },
   "paths": { "claudeHome": "~/.claude", "stateDir": "~/.lifestream" },
   "qoder": {
     "cliBin": "qodercli",
