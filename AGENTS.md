@@ -9,7 +9,7 @@ Lifestream：本机 Claude Code 会话监控与控制中枢；Web / 钉钉 IM / 
 ## 技术栈
 
 - TypeScript + Node.js >= 24，**ESM**（`"type": "module"`）
-- Fastify（HTTP/SSE）、`@modelcontextprotocol/sdk`（MCP）、zod（校验）
+- Fastify（HTTP/SSE）、`@modelcontextprotocol/sdk`（MCP）、zod（校验）、markdown-it（Web 端 assistant 正文渲染，`html:false`）
 - vitest（测试）、tsx（开发直跑源码）、tsc（构建）
 
 ## 架构约定（重要）
