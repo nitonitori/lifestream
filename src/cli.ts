@@ -103,8 +103,9 @@ async function main(): Promise<void> {
       stderrPath: join(cfg.paths.stateDir, 'daemon.err.log'),
       // 快照安装时的 PATH：launchd 只给 /usr/bin:/bin:/usr/sbin:/sbin，而 tmux/claude 常在
       // /opt/homebrew/bin；tmux 起的会话又继承本进程 env，PATH 缺了会连带整片会话哑火。
+      // 前置当前 node 的 bin 目录：nvm 下登录 PATH 里的 node 未必是跑 lifestream 的这个版本。
       // 代价是这份 PATH 会随环境变化而过期 —— 换 node 版本/装新工具后重跑本命令即可。
-      env: { PATH: process.env.PATH ?? '' },
+      env: { PATH: [dirname(process.execPath), process.env.PATH ?? ''].filter(Boolean).join(':') },
     });
     const dest = join(homedir(), 'Library', 'LaunchAgents', `${label}.plist`);
     mkdirSync(dirname(dest), { recursive: true });
