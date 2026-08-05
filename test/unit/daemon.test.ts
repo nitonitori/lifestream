@@ -33,4 +33,22 @@ describe('renderLaunchdPlist', () => {
     expect(plist.startsWith('<?xml')).toBe(true);
     expect(plist).toContain('<!DOCTYPE plist');
   });
+  it('omits EnvironmentVariables when no env given', () => {
+    expect(plist).not.toContain('EnvironmentVariables');
+  });
+  // launchd 只给 /usr/bin:/bin:/usr/sbin:/sbin。tmux/claude 都在 /opt/homebrew/bin，
+  // 且 tmux 起的会话会继承这份 env —— PATH 必须显式带上，否则装上就是全线哑火。
+  it('embeds env vars so PATH survives launchd', () => {
+    const withEnv = renderLaunchdPlist({
+      label: 'com.lifestream.daemon',
+      programArguments: ['/usr/local/bin/node', '/app/dist/cli.js', 'daemon'],
+      workingDirectory: '/app',
+      stdoutPath: '/app/out.log',
+      stderrPath: '/app/err.log',
+      env: { PATH: '/opt/homebrew/bin:/usr/bin:/bin' },
+    });
+    expect(withEnv).toContain('<key>EnvironmentVariables</key>');
+    expect(withEnv).toContain('<key>PATH</key>');
+    expect(withEnv).toContain('<string>/opt/homebrew/bin:/usr/bin:/bin</string>');
+  });
 });
